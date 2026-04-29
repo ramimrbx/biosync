@@ -98,7 +98,7 @@ MainWindow::~MainWindow() {}
 
 void MainWindow::setupUi() {
     setWindowTitle("BioSync");
-    setWindowIcon(QIcon(":/assets/images/icon.png"));
+    setWindowIcon(QIcon(":/assets/images/icon.ico"));
     setMinimumSize(1120, 700);
     resize(1280, 780);
 
@@ -248,7 +248,7 @@ void MainWindow::setupUi() {
 }
 
 void MainWindow::setupTray() {
-    m_trayIcon = new QSystemTrayIcon(QIcon(":/assets/images/icon.png"), this);
+    m_trayIcon = new QSystemTrayIcon(QIcon(":/assets/images/icon.ico"), this);
     m_trayIcon->setToolTip("BioSync — Attendance Manager");
 
     auto *trayMenu = new QMenu(this);

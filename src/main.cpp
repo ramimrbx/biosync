@@ -21,7 +21,7 @@ static void installDesktopIntegration() {
     const QString iconPath = iconDir + "/biosync.png";
     QDir().mkpath(iconDir);
     if (!QFile::exists(iconPath)) {
-        QFile::copy(":/assets/images/icon.png", iconPath);
+        QFile::copy(":/assets/images/icon.ico", iconPath);
         // copy() preserves Qt resource permissions (read-only) — make it writable
         QFile::setPermissions(iconPath,
             QFileDevice::ReadOwner | QFileDevice::WriteOwner |
@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
     installDesktopIntegration();
 #endif
 
-    const QIcon appIcon(":/assets/images/icon.png");
+    const QIcon appIcon(":/assets/images/icon.ico");
     app.setWindowIcon(appIcon);
 
     // Base font

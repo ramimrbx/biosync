@@ -55,6 +55,16 @@ target_link_libraries(BioSync PRIVATE
 )
 
 if(WIN32)
+    target_sources(BioSync PRIVATE src/resources_win.rc)
+
     set_target_properties(BioSync PROPERTIES WIN32_EXECUTABLE TRUE)
     target_compile_definitions(BioSync PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+
+    get_target_property(QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QMAKE_EXECUTABLE}" DIRECTORY)
+
+    add_custom_command(TARGET BioSync POST_BUILD
+            COMMAND "${QT_BIN_DIR}/windeployqt.exe" "$<TARGET_FILE:BioSync>"
+            COMMENT "Auto-deploying Qt DLLs for Windows..."
+    )
 endif()
