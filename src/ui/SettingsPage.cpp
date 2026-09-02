@@ -8,6 +8,8 @@
 #include <QNetworkInterface>
 #include <QAbstractSocket>
 #include <QFrame>
+#include <QCheckBox>
+#include "../service/Autostart.h"
 
 static QString inputStyle() {
     return "QLineEdit, QSpinBox {"
@@ -132,6 +134,16 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     serverControlLayout->addLayout(serverBtnRow);
     serverControlLayout->addWidget(hint("Start/Stop the ADMS listener. Restart applies new port settings immediately."));
 
+    m_autoStart = new QCheckBox("  Start BioSync automatically when Windows starts");
+    m_autoStart->setCursor(Qt::PointingHandCursor);
+    m_autoStart->setStyleSheet(
+        "QCheckBox { font-size:13px; color:#111827; spacing:8px; }"
+        "QCheckBox::indicator { width:18px; height:18px; border:1.5px solid #D1D5DB; border-radius:5px; background:#FFFFFF; }"
+        "QCheckBox::indicator:checked { background:#8222E3; border-color:#8222E3;"
+        "}");
+    serverControlLayout->addWidget(m_autoStart);
+    serverControlLayout->addWidget(hint("So the attendance server is running whenever this computer is on, even after a reboot."));
+
     // ── ADMS Server port card ─────────────────────────────────────────────────
     m_serverPort = new QSpinBox();
     m_serverPort->setRange(1, 65535);
@@ -242,6 +254,7 @@ void SettingsPage::loadSettings() {
     m_apiUrl->setText(m_db->getSetting("api_url"));
     m_apiKey->setText(m_db->getSetting("api_key"));
     m_institutionId->setText(m_db->getSetting("institution_id"));
+    m_autoStart->setChecked(Autostart::isEnabled());
 }
 
 void SettingsPage::onSave() {
@@ -251,6 +264,10 @@ void SettingsPage::onSave() {
     m_db->setSetting("api_url",        apiUrl);
     m_db->setSetting("api_key",        m_apiKey->text().trimmed());
     m_db->setSetting("institution_id", m_institutionId->text().trimmed());
+
+    // Apply launch-at-startup, and reflect what actually took effect.
+    Autostart::setEnabled(m_autoStart->isChecked());
+    m_autoStart->setChecked(Autostart::isEnabled());
 
     QMessageBox mb(this);
     mb.setWindowTitle("Settings Saved");

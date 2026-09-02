@@ -4,6 +4,7 @@
 #include <QSpinBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QCheckBox>
 #include "../db/Database.h"
 
 class SettingsPage : public QWidget {
@@ -32,6 +33,7 @@ private:
     QPushButton *m_btnStart;
     QPushButton *m_btnStop;
     QPushButton *m_btnRestart;
+    QCheckBox   *m_autoStart;
 
     void loadSettings();
     QLabel *styledLabel(const QString &text);

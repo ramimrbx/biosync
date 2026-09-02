@@ -38,6 +38,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "startupicon"; Description: "Start BioSync automatically when Windows starts (recommended)"; GroupDescription: "Startup:"
 
 [Files]
 Source: "C:\Users\ramim\Projects\Software\biosync\cmake-build-release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
@@ -46,6 +47,11 @@ Source: "C:\Users\ramim\Projects\Software\biosync\cmake-build-release\*"; DestDi
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+[Registry]
+; Launch BioSync at Windows startup so the attendance server is always running. Per-user Run key,
+; so no administrator rights are needed at runtime; removed cleanly on uninstall.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "BioSync"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: startupicon; Flags: uninsdeletevalue
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

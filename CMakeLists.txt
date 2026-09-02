@@ -16,6 +16,7 @@ set(SOURCES
         src/db/Database.cpp
         src/server/ZkAdmsServer.cpp
         src/service/ApiPusher.cpp
+        src/service/Autostart.cpp
         src/service/DeviceDiscovery.cpp
         src/ui/DevicesPage.cpp
         src/ui/AttendancePage.cpp
@@ -33,6 +34,7 @@ set(HEADERS
         src/db/Database.h
         src/server/ZkAdmsServer.h
         src/service/ApiPusher.h
+        src/service/Autostart.h
         src/service/DeviceDiscovery.h
         src/ui/DevicesPage.h
         src/ui/AttendancePage.h
