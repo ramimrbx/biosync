@@ -22,6 +22,12 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppPublisher}\{#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
+; Admin is needed to write a Windows Firewall rule so the ADMS listener is pre-authorised
+; and Windows never shows the "allow network access" prompt (including after every reboot).
+PrivilegesRequired=admin
+; Same AppId + a bumped AppVersion makes each install upgrade the existing one in place.
+AppMutex=BioSyncSingleInstanceMutex
+
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -62,4 +68,12 @@ Type: filesandordirs; Name: "{app}"
 Type: dirifempty; Name: "{autopf}\{#MyAppPublisher}"
 
 [Run]
+; Pre-authorise BioSync in Windows Firewall (both profiles) so the ADMS listener never triggers
+; the "allow access" prompt — remove any stale rule of the same name first, then add a fresh one.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BioSync"""; Flags: runhidden; StatusMsg: "Configuring firewall..."
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""BioSync"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any"; Flags: runhidden; StatusMsg: "Configuring firewall..."
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Drop the firewall rule when BioSync is removed.
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BioSync"""; Flags: runhidden

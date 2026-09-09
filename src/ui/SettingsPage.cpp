@@ -9,17 +9,18 @@
 #include <QAbstractSocket>
 #include <QFrame>
 #include <QCheckBox>
+#include <QScrollArea>
+#include <QSpacerItem>
 #include "../service/Autostart.h"
 
 static QString inputStyle() {
     return "QLineEdit, QSpinBox {"
            "  background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:8px;"
-           "  padding:8px 12px; font-size:13px; color:#111827;"
+           "  padding:10px 12px; min-height:22px; font-size:14px; color:#111827;"
            "}"
            "QLineEdit:focus, QSpinBox:focus {"
-           "  border-color:#8222E3; outline:none;"
+           "  border-color:#8222E3;"
            "}"
-           "QLineEdit::placeholder { color:#9CA3AF; }"
            "QSpinBox::up-button, QSpinBox::down-button { width:20px; border-radius:4px; }";
 }
 
@@ -162,27 +163,33 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
 
     // ── API Connection card ───────────────────────────────────────────────────
     m_apiUrl = new QLineEdit();
-    m_apiUrl->setPlaceholderText("http://192.168.1.100:8080");
+    m_apiUrl->setPlaceholderText("https://ritems.io");
+    m_apiUrl->setClearButtonEnabled(true);
     m_apiKey = new QLineEdit();
-    m_apiKey->setPlaceholderText("biosync-api-key");
+    m_apiKey->setPlaceholderText("the biosync-api-key value");
     m_apiKey->setEchoMode(QLineEdit::Password);
     m_institutionId = new QLineEdit();
     m_institutionId->setPlaceholderText("e.g. 1");
+    m_institutionId->setClearButtonEnabled(true);
 
     for (auto *le : {m_apiUrl, m_apiKey, m_institutionId})
         le->setStyleSheet(inputStyle());
 
-    auto *apiGroup = new QGroupBox("API Connection");
+    auto *apiGroup = new QGroupBox("RiTEMS Connection");
     apiGroup->setStyleSheet(cardStyle());
     auto *apiForm = new QFormLayout(apiGroup);
     apiForm->setLabelAlignment(Qt::AlignRight);
-    apiForm->setSpacing(14);
+    apiForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    apiForm->setSpacing(6);
     apiForm->setContentsMargins(8, 16, 8, 8);
-    apiForm->addRow(styledLabel("Base URL"),       m_apiUrl);
-    apiForm->addRow(styledLabel("API Key"),        m_apiKey);
+    apiForm->addRow(styledLabel("Base URL"), m_apiUrl);
+    apiForm->addRow("", hint("Your RiTEMS website address only — no path. e.g. https://ritems.io"));
+    apiForm->addItem(new QSpacerItem(0, 8));
+    apiForm->addRow(styledLabel("API Key"), m_apiKey);
+    apiForm->addRow("", hint("Must match the key set in RiTEMS → Settings → Gateway → biosync-api-key."));
+    apiForm->addItem(new QSpacerItem(0, 8));
     apiForm->addRow(styledLabel("Institution ID"), m_institutionId);
-    apiForm->addRow("",
-        hint("Set biosync.api-key in api/application.properties to match the key above."));
+    apiForm->addRow("", hint("The numeric ID of the institution these devices belong to in RiTEMS."));
 
     // ── Save button ───────────────────────────────────────────────────────────
     auto *btnSave = new QPushButton("  Save Settings");
@@ -201,21 +208,45 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     connect(m_btnRestart, &QPushButton::clicked, this, &SettingsPage::serverRestartRequested);
 
     // ── Body ─────────────────────────────────────────────────────────────────
-    auto *scrollBody = new QVBoxLayout();
-    scrollBody->setContentsMargins(28, 20, 28, 20);
-    scrollBody->setSpacing(16);
-    scrollBody->addWidget(ipBanner);
-    scrollBody->addWidget(serverControlGroup);
-    scrollBody->addWidget(serverGroup);
-    scrollBody->addWidget(apiGroup);
-    scrollBody->addWidget(btnSave, 0, Qt::AlignLeft);
-    scrollBody->addStretch();
+    // Centred, width-capped column of cards…
+    auto *col = new QVBoxLayout();
+    col->setSpacing(16);
+    col->setContentsMargins(0, 0, 0, 0);
+    col->addWidget(ipBanner);
+    col->addWidget(serverControlGroup);
+    col->addWidget(serverGroup);
+    col->addWidget(apiGroup);
+    col->addWidget(btnSave, 0, Qt::AlignLeft);
+    col->addStretch();
+
+    auto *colWrap = new QWidget();
+    colWrap->setMaximumWidth(780);
+    colWrap->setLayout(col);
+
+    auto *bodyRow = new QHBoxLayout();
+    bodyRow->setContentsMargins(28, 20, 28, 28);
+    bodyRow->addStretch();
+    bodyRow->addWidget(colWrap, 1);
+    bodyRow->addStretch();
+
+    auto *bodyWidget = new QWidget();
+    bodyWidget->setStyleSheet("background:transparent;");
+    bodyWidget->setLayout(bodyRow);
+
+    // …inside a scroll area, so every field is reachable on any window size (this was the
+    // reason the API fields could not be clicked/typed on shorter windows).
+    auto *scroll = new QScrollArea();
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setStyleSheet("QScrollArea{background:#F4F6FB;border:none;}");
+    scroll->setWidget(bodyWidget);
 
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(0, 0, 0, 0);
     root->setSpacing(0);
     root->addWidget(header);
-    root->addLayout(scrollBody);
+    root->addWidget(scroll, 1);
 
     loadSettings();
 }

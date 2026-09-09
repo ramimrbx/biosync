@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=BioSync
+Comment=ZKTeco biometric attendance bridge for RiTEMS
+Exec=biosync
+Icon=biosync
+Terminal=false
+Categories=Utility;Network;
+StartupWMClass=biosync

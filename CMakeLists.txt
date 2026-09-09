@@ -70,3 +70,29 @@ if(WIN32)
             COMMENT "Auto-deploying Qt DLLs for Windows..."
     )
 endif()
+
+# ── Linux packaging (.deb via CPack) ──────────────────────────────────────────
+if(UNIX AND NOT APPLE)
+    # Install as lowercase /usr/bin/biosync (a file name — the app's display name stays "BioSync").
+    set_target_properties(BioSync PROPERTIES OUTPUT_NAME biosync)
+    install(TARGETS BioSync RUNTIME DESTINATION bin)
+    install(FILES ${CMAKE_SOURCE_DIR}/packaging/biosync.desktop
+            DESTINATION share/applications)
+    install(FILES ${CMAKE_SOURCE_DIR}/src/assets/images/icon.png
+            DESTINATION share/icons/hicolor/256x256/apps RENAME biosync.png)
+
+    set(CPACK_GENERATOR "DEB")
+    set(CPACK_PACKAGE_NAME "biosync")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_CONTACT "Right iTech <info@ritems.io>")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Right iTech <info@ritems.io>")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "BioSync — ZKTeco biometric attendance bridge for RiTEMS")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://ritems.io")
+    # Auto-resolve the exact Qt/libc runtime dependencies from the linked binary.
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6sql6-sqlite")
+    set(CPACK_PACKAGE_FILE_NAME "BioSync_${PROJECT_VERSION}_amd64")
+    include(CPack)
+endif()

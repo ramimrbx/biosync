@@ -9,6 +9,10 @@
 #include <QProcess>
 #include "MainWindow.h"
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 // ── Linux desktop integration ─────────────────────────────────────────────────
 // The taskbar/dock on Linux (X11 and Wayland) reads the icon from a .desktop
 // file, not from the window's icon property. We install the icon and .desktop
@@ -66,6 +70,12 @@ int main(int argc, char *argv[]) {
     // to look up the matching .desktop file for the taskbar icon.
     QApplication::setApplicationName("BioSync");
     QApplication::setOrganizationName("Right iTech");
+
+#ifdef Q_OS_WIN
+    // Named mutex the installer's AppMutex checks, so an in-place upgrade can detect a
+    // running instance and ask the user to close it before replacing files.
+    CreateMutexW(nullptr, FALSE, L"BioSyncSingleInstanceMutex");
+#endif
     QApplication::setApplicationVersion("1.0.0");
     QApplication::setDesktopFileName("biosync");   // matches biosync.desktop
 

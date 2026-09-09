@@ -19,7 +19,7 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName",      "Right iTech"
-            VALUE "FileDescription",  "BioSync - Universal Attendance Data Sync Gateway"
+            VALUE "FileDescription",  "BioSync"
             VALUE "FileVersion",      "1.0.0.0"
             VALUE "InternalName",     "BioSync"
             VALUE "LegalCopyright",   "Copyright (C) 2026 Right iTech"
