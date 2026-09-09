@@ -41,11 +41,22 @@ cmake --build build --config Release
 4. The device will appear Online in BioSync when it sends the first heartbeat
 
 ## API Configuration
-1. Set `biosync.api-key` in `api/src/main/resources/application.properties`
-2. In BioSync Settings:
-   - API Base URL: `http://<api-server>:8080`
-   - API Key: same value as `biosync.api-key`
-   - Institution ID: the institution's ID in the database
+Set the shared API key on the RiTEMS side (the database value takes priority if both are set):
+- **Recommended:** in RiTEMS go to **Settings → Gateway** and add a system config with
+  key `biosync-api-key` and your chosen secret value (stored encrypted).
+- Or set `biosync.api-key` in the API's `application.properties`.
+
+Then in BioSync **Settings**:
+- **API Base URL:** your RiTEMS URL, e.g. `https://ritems.io` (BioSync appends the
+  `/api/v1/biosync/...` paths itself — do not include a path here)
+- **API Key:** the same value as `biosync-api-key`
+- **Institution ID:** the institution's ID in RiTEMS
+
+BioSync talks to RiTEMS over these endpoints, all authenticated with the `X-BioSync-Key`
+header (no login needed):
+- `POST /api/v1/biosync/push` — attendance punches
+- `POST /api/v1/biosync/templates/backup` — back up fingerprint/face templates
+- `GET  /api/v1/biosync/templates/device/{serial}` — fetch templates to restore to a device
 
 ## Offline Mode
 BioSync stores all attendance records locally in SQLite (`~/.biosync/biosync.db` on Linux,
