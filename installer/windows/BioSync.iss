@@ -6,14 +6,14 @@
 #define MyAppPublisher "Right iTech"
 #define MyAppURL "https://github.com/ramimrbx/biosync"
 #define MyAppExeName "BioSync.exe"
+#define MyBuildDir "C:\Users\ramim\Projects\Software\biosync\cmake-build-release"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 AppId={{7A880B11-3DDF-4EEC-997E-13591EA773AB}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} 
-
+AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
@@ -26,12 +26,13 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 DisableProgramGroupPage=yes
 OutputDir=C:\Users\ramim\Projects\Software\biosync\installer\windows
-OutputBaseFilename=BioSync_Setup_v1.0.0
+OutputBaseFilename=BioSync_Setup_v{#MyAppVersion}
 
 SetupIconFile=C:\Users\ramim\Projects\Software\biosync\src\assets\images\icon.ico
 
+Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern dynamic windows11
+WizardStyle=modern
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -41,8 +42,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "startupicon"; Description: "Start BioSync automatically when Windows starts (recommended)"; GroupDescription: "Startup:"
 
 [Files]
-Source: "C:\Users\ramim\Projects\Software\biosync\cmake-build-release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\ramim\Projects\Software\biosync\cmake-build-release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Ship the whole deployed build tree (Qt DLLs, plugin folders, MinGW runtime), but
+; exclude the CMake/Ninja build artifacts that live alongside it in the build dir.
+Source: "{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "CMakeFiles,BioSync_autogen,.qt,CMakeCache.txt,cmake_install.cmake,*.ninja,.ninja_deps,.ninja_log,*.cbp,*.a,*.o"
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
