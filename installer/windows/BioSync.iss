@@ -3,7 +3,7 @@
 
 #define MyAppName "BioSync"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Md. Razib Hossain Ramim"
+#define MyAppPublisher "Right iTech"
 #define MyAppURL "https://github.com/ramimrbx/biosync"
 #define MyAppExeName "BioSync.exe"
 

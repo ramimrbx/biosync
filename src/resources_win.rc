@@ -18,11 +18,11 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "CompanyName",      "Md. Razib Hossain Ramim"
+            VALUE "CompanyName",      "Right iTech"
             VALUE "FileDescription",  "BioSync - Universal Attendance Data Sync Gateway"
             VALUE "FileVersion",      "1.0.0.0"
             VALUE "InternalName",     "BioSync"
-            VALUE "LegalCopyright",   "Copyright (C) 2026 Md. Razib Hossain Ramim"
+            VALUE "LegalCopyright",   "Copyright (C) 2026 Right iTech"
             VALUE "OriginalFilename", "BioSync.exe"
             VALUE "ProductName",      "BioSync"
             VALUE "ProductVersion",   "1.0.0.0"

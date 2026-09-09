@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
     // Must be set before QApplication construction — Wayland uses this as app-id
     // to look up the matching .desktop file for the taskbar icon.
     QApplication::setApplicationName("BioSync");
-    QApplication::setOrganizationName("Md. Razib Hossain Ramim");
+    QApplication::setOrganizationName("Right iTech");
     QApplication::setApplicationVersion("1.0.0");
     QApplication::setDesktopFileName("biosync");   // matches biosync.desktop
 

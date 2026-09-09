@@ -60,6 +60,6 @@ header (no login needed):
 
 ## Offline Mode
 BioSync stores all attendance records locally in SQLite (`~/.biosync/biosync.db` on Linux,
-`%APPDATA%\RightITech\BioSync\biosync.db` on Windows). When the API is unreachable,
+`%APPDATA%\Right iTech\BioSync\biosync.db` on Windows). When the API is unreachable,
 records are queued with `sync_status = pending` and automatically pushed when connectivity
 is restored (checked every 15 seconds).
