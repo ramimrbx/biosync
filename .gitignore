@@ -2,4 +2,7 @@
 build/
 cmake-build-debug/
 cmake-build-release/
-*.exe
+*.exepackaging/stage/
+packaging/icon.ico
+packaging/*.exe
+build-win/

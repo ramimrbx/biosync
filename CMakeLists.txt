@@ -65,10 +65,12 @@ if(WIN32)
     get_target_property(QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(QT_BIN_DIR "${QMAKE_EXECUTABLE}" DIRECTORY)
 
-    add_custom_command(TARGET BioSync POST_BUILD
-            COMMAND "${QT_BIN_DIR}/windeployqt.exe" "$<TARGET_FILE:BioSync>"
-            COMMENT "Auto-deploying Qt DLLs for Windows..."
-    )
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_custom_command(TARGET BioSync POST_BUILD
+                COMMAND "${QT_BIN_DIR}/windeployqt.exe" "$<TARGET_FILE:BioSync>"
+                COMMENT "Auto-deploying Qt DLLs for Windows..."
+        )
+    endif()
 endif()
 
 # ── Linux packaging (.deb via CPack) ──────────────────────────────────────────
