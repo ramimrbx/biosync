@@ -18,7 +18,8 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+; Install under the publisher folder: C:\Program Files\Right iTech\BioSync
+DefaultDirName={autopf}\{#MyAppPublisher}\{#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ArchitecturesAllowed=x64compatible
@@ -57,6 +58,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+; Remove the publisher folder too, but only if BioSync was the last thing in it.
+Type: dirifempty; Name: "{autopf}\{#MyAppPublisher}"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
