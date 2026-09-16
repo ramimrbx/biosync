@@ -2,10 +2,12 @@
 build/
 cmake-build-debug/
 cmake-build-release/
-*.exepackaging/stage/
+*.exe
 packaging/icon.ico
 packaging/*.exe
+packaging/stage/
 build-win/
+build-verify/
 
 # App-signing secret — real key lives here, never committed (see secret.env.example)
 secret.env
