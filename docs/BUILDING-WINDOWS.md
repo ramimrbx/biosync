@@ -41,20 +41,30 @@ Add Qt's `bin` (e.g. `C:\Qt\6.8.2\mingw_64\bin`) and CMake to your `PATH`.
 
 ## 3. Build the signed executable
 
-Open a terminal (the *Qt 6.8.2 (MinGW)* command prompt is easiest) in the repo root:
+**Recommended — put the secret in `secret.env` (one time):**
 
 ```bat
-:: 1) Configure — THE SECRET GOES HERE, nowhere else
-cmake -S . -B build -G "Ninja" ^
-  -DCMAKE_BUILD_TYPE=Release ^
-  -DBIOSYNC_APP_SECRET=PASTE_THE_64_CHAR_SECRET_HERE
+copy secret.env.example secret.env
+:: then open secret.env and set BIOSYNC_APP_SECRET=<your 64-char key>
+```
+`secret.env` is gitignored, so it never leaves your machine. CMake reads it automatically and bakes
+the key in. From then on you just build — no secret on the command line, no shell-history leak.
 
-:: 2) Compile
+```bat
+:: Configure (CMake picks up secret.env), compile, bundle Qt DLLs
+cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-
-:: 3) Bundle the Qt DLLs next to the .exe
 windeployqt build\BioSync.exe
 ```
+
+Watch the configure output — it prints **"app-signing secret configured — this is a SIGNED (official)
+build."** If it warns that no secret is set, the build would be unsigned (RiTEMS would reject it).
+
+**Alternative — pass it on the command line** (no file), which takes precedence over `secret.env`:
+```bat
+cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DBIOSYNC_APP_SECRET=<your 64-char key>
+```
+(A `BIOSYNC_APP_SECRET` environment variable is also honoured, lowest precedence.)
 
 You now have `build\BioSync.exe` plus its Qt DLLs — a signed, official build.
 

@@ -6,3 +6,6 @@ cmake-build-release/
 packaging/icon.ico
 packaging/*.exe
 build-win/
+
+# App-signing secret — real key lives here, never committed (see secret.env.example)
+secret.env

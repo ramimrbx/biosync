@@ -60,12 +60,40 @@ target_link_libraries(BioSync PRIVATE
         Qt6::Sql
 )
 
-# App-signing secret, baked into the binary at build time (NEVER committed). Pass at configure time:
-#   cmake -B build -DBIOSYNC_APP_SECRET=<secret>
-# RiTEMS verifies each push's HMAC signature against the same secret (stored in its gateway config),
-# so a leaked BioSync API key alone cannot forge attendance.
+# App-signing secret, baked into the binary at build time (NEVER committed). RiTEMS verifies each
+# push's HMAC signature against the same secret (stored in its gateway config), so only an official
+# build that holds the secret can submit attendance — a leaked API key alone cannot.
+#
+# The secret is resolved in this order (first one found wins):
+#   1. -DBIOSYNC_APP_SECRET=<secret> on the cmake command line
+#   2. a `secret.env` file in the repo root  (gitignored — copy secret.env.example to it)
+#   3. the BIOSYNC_APP_SECRET environment variable
+if(NOT DEFINED BIOSYNC_APP_SECRET)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/secret.env")
+        file(STRINGS "${CMAKE_SOURCE_DIR}/secret.env" _biosync_secret_lines)
+        foreach(_line IN LISTS _biosync_secret_lines)
+            # skip blank lines and comments, match KEY=VALUE
+            if(_line MATCHES "^[ \t]*BIOSYNC_APP_SECRET[ \t]*=[ \t]*(.+)$")
+                set(BIOSYNC_APP_SECRET "${CMAKE_MATCH_1}")
+            endif()
+        endforeach()
+    elseif(DEFINED ENV{BIOSYNC_APP_SECRET})
+        set(BIOSYNC_APP_SECRET "$ENV{BIOSYNC_APP_SECRET}")
+    endif()
+endif()
+
 if(DEFINED BIOSYNC_APP_SECRET)
+    # tolerate a trailing CR (Windows line endings) or surrounding quotes/whitespace
+    string(STRIP "${BIOSYNC_APP_SECRET}" BIOSYNC_APP_SECRET)
+    string(REGEX REPLACE "^\"(.*)\"$" "\\1" BIOSYNC_APP_SECRET "${BIOSYNC_APP_SECRET}")
+endif()
+
+if(DEFINED BIOSYNC_APP_SECRET AND NOT BIOSYNC_APP_SECRET STREQUAL "")
     target_compile_definitions(BioSync PRIVATE "BIOSYNC_APP_SECRET=\"${BIOSYNC_APP_SECRET}\"")
+    message(STATUS "BioSync: app-signing secret configured — this is a SIGNED (official) build.")
+else()
+    message(WARNING "BioSync: no app-signing secret set — this build is UNSIGNED and RiTEMS will "
+                    "reject its pushes. Copy secret.env.example to secret.env and set your key.")
 endif()
 
 # App version, baked in so the UI, the About panel and the update checker all report the real build.
