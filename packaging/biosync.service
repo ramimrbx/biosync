@@ -1,0 +1,21 @@
+[Unit]
+Description=BioSync — ZKTeco biometric attendance bridge (headless)
+Documentation=https://ritems.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Headless: no GUI, no login needed. Config is read from the shared DB in /var/lib/biosync
+# (the same DB the BioSync GUI writes to when you configure it).
+ExecStart=/usr/bin/biosync --headless
+Restart=on-failure
+RestartSec=5
+# QStandardPaths/offscreen need no display; force it so Qt never tries to reach one.
+Environment=QT_QPA_PLATFORM=offscreen
+# Machine-wide state dir, created 0777 so the desktop user's GUI can write the shared config too.
+StateDirectory=biosync
+StateDirectoryMode=0777
+
+[Install]
+WantedBy=multi-user.target

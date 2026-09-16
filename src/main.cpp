@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QCoreApplication>
 #include <QFont>
 #include <QPalette>
 #include <QDir>
@@ -8,6 +9,7 @@
 #include <QWindow>
 #include <QProcess>
 #include "MainWindow.h"
+#include "HeadlessRunner.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -66,6 +68,24 @@ static void installDesktopIntegration() {
 #endif
 
 int main(int argc, char *argv[]) {
+    // Headless / service mode: run the full sync engine with NO GUI, so it can run at boot before
+    // any login (systemd on Linux, a boot task/service on Windows). Detected before any QApplication
+    // is built, so no display/session is ever required.
+    bool headless = false;
+    for (int i = 1; i < argc; ++i) {
+        const QString a = QString::fromLocal8Bit(argv[i]);
+        if (a == "--headless" || a == "--service" || a == "-H") headless = true;
+    }
+    if (headless) {
+        QCoreApplication::setApplicationName("BioSync");
+        QCoreApplication::setOrganizationName("Right iTech");
+        QCoreApplication::setApplicationVersion("1.0.0");
+        QCoreApplication app(argc, argv);
+        HeadlessRunner runner;
+        if (!runner.start()) return 1;
+        return app.exec();
+    }
+
     // Must be set before QApplication construction — Wayland uses this as app-id
     // to look up the matching .desktop file for the taskbar icon.
     QApplication::setApplicationName("BioSync");

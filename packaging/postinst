@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+# Shared config dir, writable by the desktop user's GUI as well as the root service.
+mkdir -p /var/lib/biosync
+chmod 0777 /var/lib/biosync || true
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl enable biosync.service || true
+    systemctl restart biosync.service || true
+fi
+exit 0

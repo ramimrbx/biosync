@@ -13,6 +13,7 @@ set(SOURCES
         src/assets/resources.qrc
         src/main.cpp
         src/MainWindow.cpp
+        src/HeadlessRunner.cpp
         src/db/Database.cpp
         src/server/ZkAdmsServer.cpp
         src/service/ApiPusher.cpp
@@ -29,6 +30,8 @@ set(SOURCES
 
 set(HEADERS
         src/MainWindow.h
+        src/HeadlessRunner.h
+        src/AppPaths.h
         src/model/Device.h
         src/model/AttendanceRecord.h
         src/db/Database.h
@@ -82,6 +85,9 @@ if(UNIX AND NOT APPLE)
             DESTINATION share/applications)
     install(FILES ${CMAKE_SOURCE_DIR}/src/assets/images/icon.png
             DESTINATION share/icons/hicolor/256x256/apps RENAME biosync.png)
+    # systemd system service so BioSync runs headless at boot, before/without any login.
+    install(FILES ${CMAKE_SOURCE_DIR}/packaging/biosync.service
+            DESTINATION lib/systemd/system)
 
     set(CPACK_GENERATOR "DEB")
     set(CPACK_PACKAGE_NAME "biosync")
@@ -95,6 +101,9 @@ if(UNIX AND NOT APPLE)
     # Auto-resolve the exact Qt/libc runtime dependencies from the linked binary.
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6sql6-sqlite")
+    # postinst/postrm enable + start/stop the systemd service on install/removal.
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_SOURCE_DIR}/packaging/postinst;${CMAKE_SOURCE_DIR}/packaging/postrm")
     set(CPACK_PACKAGE_FILE_NAME "BioSync_${PROJECT_VERSION}_amd64")
     include(CPack)
 endif()

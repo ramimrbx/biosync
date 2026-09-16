@@ -57,10 +57,10 @@ Source: "{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
-[Registry]
-; Launch BioSync at Windows startup so the attendance server is always running. Per-user Run key,
-; so no administrator rights are needed at runtime; removed cleanly on uninstall.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "BioSync"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: startupicon; Flags: uninsdeletevalue
+[Dirs]
+; Shared config dir (the app's AppPaths uses %ProgramData%\BioSync). Users get Modify so the GUI can
+; write config that the SYSTEM boot service reads.
+Name: "{commonappdata}\BioSync"; Permissions: users-modify
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
@@ -72,8 +72,14 @@ Type: dirifempty; Name: "{autopf}\{#MyAppPublisher}"
 ; the "allow access" prompt — remove any stale rule of the same name first, then add a fresh one.
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BioSync"""; Flags: runhidden; StatusMsg: "Configuring firewall..."
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""BioSync"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any"; Flags: runhidden; StatusMsg: "Configuring firewall..."
+; Run HEADLESS at system startup as SYSTEM — no login needed, no GUI. Gated on the "start automatically" task.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Create /TN ""BioSync"" /TR ""\""{app}\{#MyAppExeName}\"" --headless"" /SC ONSTART /RU SYSTEM /RL HIGHEST /F"; Flags: runhidden; StatusMsg: "Registering startup service..."; Tasks: startupicon
+Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""BioSync"""; Flags: runhidden; Tasks: startupicon
+; Open the GUI once so the operator can enter the server URL / key (writes the shared config the service reads).
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-; Drop the firewall rule when BioSync is removed.
+; Stop + remove the headless boot task, then drop the firewall rule.
+Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""BioSync"""; Flags: runhidden; RunOnceId: "StopTask"
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""BioSync"" /F"; Flags: runhidden; RunOnceId: "DelTask"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BioSync"""; Flags: runhidden

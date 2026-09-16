@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "AppPaths.h"
 #include "ui/DeviceDiscoveryDialog.h"
 #include <QHBoxLayout>
 #include <QVBoxLayout>
@@ -77,13 +78,8 @@ private:
 // ── MainWindow ─────────────────────────────────────────────────────────────────
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_db = new Database(this);
-    QString dbPath;
-#ifdef Q_OS_WIN
-    dbPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/biosync.db";
-#else
-    dbPath = QDir::homePath() + "/.biosync/biosync.db";
-#endif
-    m_db->open(dbPath);
+    // Shared machine-wide DB so the headless boot service reads the config set here in the GUI.
+    m_db->open(AppPaths::dbPath());
 
     m_server = new ZkAdmsServer(this);
     m_pusher = new ApiPusher(m_db, this);

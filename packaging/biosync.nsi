@@ -40,8 +40,17 @@ Section "BioSync"
   CreateShortcut "$SMPROGRAMS\${APP}\BioSync.lnk" "$INSTDIR\BioSync.exe"
   CreateShortcut "$DESKTOP\BioSync.lnk" "$INSTDIR\BioSync.exe"
 
-  ; Start at login (all users) so the attendance server is always running.
-  WriteRegStr HKLM "${RUNKEY}" "BioSync" '"$INSTDIR\BioSync.exe"'
+  ; Shared config dir (same one the app's AppPaths uses): both the SYSTEM boot service and the
+  ; user's GUI read/write it. Grant Users modify so the GUI can save config the service will read.
+  CreateDirectory "$COMMONPROGRAMDATA\BioSync"
+  nsExec::Exec 'icacls "$COMMONPROGRAMDATA\BioSync" /grant *S-1-5-32-545:(OI)(CI)M /T'
+
+  ; Run HEADLESS at system startup, as SYSTEM — no login required, no GUI. This replaces the old
+  ; login Run key (remove any leftover from a previous version).
+  DeleteRegValue HKLM "${RUNKEY}" "BioSync"
+  nsExec::Exec 'schtasks /Create /TN "BioSync" /TR "\"$INSTDIR\BioSync.exe\" --headless" /SC ONSTART /RU SYSTEM /RL HIGHEST /F'
+  ; Start it now too, so it works without a reboot.
+  nsExec::Exec 'schtasks /Run /TN "BioSync"'
 
   ; Pre-authorise in Windows Firewall so the ADMS listener never triggers the prompt (incl. after reboot).
   nsExec::Exec 'netsh advfirewall firewall delete rule name="BioSync"'
@@ -60,6 +69,9 @@ Section "BioSync"
 SectionEnd
 
 Section "Uninstall"
+  ; Stop + remove the headless boot task.
+  nsExec::Exec 'schtasks /End /TN "BioSync"'
+  nsExec::Exec 'schtasks /Delete /TN "BioSync" /F'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="BioSync"'
   DeleteRegValue HKLM "${RUNKEY}" "BioSync"
   DeleteRegKey HKLM "${UNINSTKEY}"
