@@ -13,6 +13,8 @@ public:
     explicit SettingsPage(Database *db, QWidget *parent = nullptr);
 
     void updateServerStatus(bool running, quint16 port);
+    // Briefly shows a coloured confirmation line under the server buttons (e.g. after a Restart).
+    void flashServerAction(const QString &message, bool ok);
 
 signals:
     void settingsSaved();
@@ -34,6 +36,7 @@ private:
     QPushButton *m_btnStop;
     QPushButton *m_btnRestart;
     QCheckBox   *m_autoStart;
+    QLabel     *m_actionToast;
 
     void loadSettings();
     QLabel *styledLabel(const QString &text);

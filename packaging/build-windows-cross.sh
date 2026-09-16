@@ -24,4 +24,4 @@ cp "$QT_WIN/plugins/styles/qmodernwindowsstyle.dll" "$S/styles/" || true
 cp "$QT_WIN/plugins/imageformats/qico.dll"         "$S/imageformats/" || true
 cp "$HERE/src/assets/images/icon.ico" "$HERE/packaging/icon.ico"
 ( cd "$HERE/packaging" && makensis -V2 biosync.nsi )
-echo "Installer: $HERE/packaging/BioSync_Setup_v1.1.0.exe"
+echo "Installer: $HERE/packaging/BioSync_Setup_v1.2.0.exe"

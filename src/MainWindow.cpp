@@ -1,6 +1,19 @@
 #include "MainWindow.h"
 #include "AppPaths.h"
+#include "Version.h"
 #include "ui/DeviceDiscoveryDialog.h"
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QUrlQuery>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QDialog>
+#include <QGridLayout>
+#include <QDesktopServices>
+#include <QProgressDialog>
+#include <QSaveFile>
+#include <QTimer>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -88,6 +101,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setupTray();
     startServer();
     reloadApiConfig();
+
+    // Auto-check for a newer version shortly after launch (silent when already up to date),
+    // then once a day while the app stays open.
+    QTimer::singleShot(4000, this, [this]() { checkForUpdates(/*interactive=*/false); });
+    auto *updateTimer = new QTimer(this);
+    connect(updateTimer, &QTimer::timeout, this, [this]() { checkForUpdates(false); });
+    updateTimer->start(24 * 60 * 60 * 1000);
 }
 
 MainWindow::~MainWindow() {}
@@ -148,10 +168,14 @@ void MainWindow::setupUi() {
     navDivider->setFrameShape(QFrame::HLine);
     navDivider->setStyleSheet("color: rgba(255,255,255,0.08);");
 
-    // Version label at bottom of sidebar
-    auto *versionLabel = new QLabel("v1.0.0");
-    versionLabel->setAlignment(Qt::AlignCenter);
-    versionLabel->setStyleSheet("color:rgba(255,255,255,0.25); font-size:10px; padding:8px 0;");
+    // Version button at bottom of sidebar — real build version, opens the About panel.
+    auto *versionBtn = new QPushButton(QString("v%1 · About").arg(BioSync::version()));
+    versionBtn->setCursor(Qt::PointingHandCursor);
+    versionBtn->setFlat(true);
+    versionBtn->setStyleSheet(
+        "QPushButton{color:rgba(255,255,255,0.35); font-size:10px; padding:8px 0; border:none; background:transparent;}"
+        "QPushButton:hover{color:rgba(255,255,255,0.75);}");
+    connect(versionBtn, &QPushButton::clicked, this, &MainWindow::onShowAbout);
 
     auto *sideLayout = new QVBoxLayout(sidebar);
     sideLayout->setContentsMargins(0, 0, 0, 0);
@@ -166,7 +190,7 @@ void MainWindow::setupUi() {
         if (i == 3) sideLayout->addStretch();
         sideLayout->addWidget(m_navBtns[i]);
     }
-    sideLayout->addWidget(versionLabel);
+    sideLayout->addWidget(versionBtn);
 
     // ── Pages ────────────────────────────────────────────────────────────────
     m_devicesPage    = new DevicesPage(m_db);
@@ -529,8 +553,18 @@ void MainWindow::onServerStop() {
 }
 
 void MainWindow::onServerRestart() {
+    m_settingsPage->flashServerAction("Restarting attendance server…", true);
     onServerStop();
     startServer();
+    const bool ok = m_server->isRunning();
+    const quint16 port = m_server->port();
+    const QString msg = ok ? QString("Attendance server restarted on port %1.").arg(port)
+                           : "Attendance server failed to restart — check the port setting.";
+    m_settingsPage->flashServerAction(msg, ok);
+    onApiLogMessage(msg);
+    if (m_trayIcon && m_trayIcon->isVisible())
+        m_trayIcon->showMessage("BioSync — Server Restart", msg,
+            ok ? QSystemTrayIcon::Information : QSystemTrayIcon::Warning, 3000);
 }
 
 void MainWindow::onNavItemChanged(int row) {
@@ -553,4 +587,178 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     } else {
         event->accept();
     }
+}
+
+// ── About + update checking ──────────────────────────────────────────────────
+
+static int compareVersions(const QString &a, const QString &b) {
+    const QStringList pa = a.split('.'), pb = b.split('.');
+    for (int i = 0; i < qMax(pa.size(), pb.size()); ++i) {
+        const int va = i < pa.size() ? pa[i].toInt() : 0;
+        const int vb = i < pb.size() ? pb[i].toInt() : 0;
+        if (va != vb) return va < vb ? -1 : 1;
+    }
+    return 0;
+}
+
+void MainWindow::onShowAbout() {
+    QDialog dlg(this);
+    dlg.setWindowTitle("About BioSync");
+    dlg.setMinimumWidth(420);
+    dlg.setStyleSheet("QDialog{background:#FFFFFF;} QLabel{color:#111827;}");
+
+    auto *lay = new QVBoxLayout(&dlg);
+    lay->setContentsMargins(24, 22, 24, 20);
+    lay->setSpacing(6);
+
+    auto *title = new QLabel("BioSync");
+    title->setStyleSheet("font-size:22px; font-weight:800; color:#8222E3;");
+    lay->addWidget(title);
+
+    auto *ver = new QLabel(QString("Version %1").arg(BioSync::version()));
+    ver->setStyleSheet("font-size:13px; color:#6B7280;");
+    lay->addWidget(ver);
+    lay->addSpacing(10);
+
+    const bool signedBuild = BioSync::isSigned();
+    auto *sig = new QLabel(signedBuild
+        ? QString("✓  Official signed build  ·  key %1").arg(BioSync::secretFingerprint())
+        : "⚠  Unsigned build — RiTEMS will reject its attendance data");
+    sig->setStyleSheet(QString("font-size:12.5px; font-weight:600; color:%1;")
+                           .arg(signedBuild ? "#10B981" : "#EF4444"));
+    sig->setWordWrap(true);
+    lay->addWidget(sig);
+
+    const QString server = m_db->getSetting("api_url").trimmed();
+    auto *srv = new QLabel(QString("Server: %1").arg(server.isEmpty() ? "(not configured)" : server));
+    srv->setStyleSheet("font-size:12px; color:#6B7280;");
+    srv->setWordWrap(true);
+    lay->addWidget(srv);
+
+#if defined(Q_OS_WIN)
+    auto *plat = new QLabel("Platform: Windows");
+#else
+    auto *plat = new QLabel("Platform: Linux");
+#endif
+    plat->setStyleSheet("font-size:12px; color:#6B7280;");
+    lay->addWidget(plat);
+    lay->addSpacing(16);
+
+    auto *btnRow = new QHBoxLayout();
+    auto *btnUpdate = new QPushButton("Check for updates");
+    btnUpdate->setCursor(Qt::PointingHandCursor);
+    btnUpdate->setStyleSheet(
+        "QPushButton{background:#8222E3; color:#FFF; border:none; padding:8px 16px; border-radius:8px; font-weight:600;}"
+        "QPushButton:hover{background:#6A1AB8;}");
+    connect(btnUpdate, &QPushButton::clicked, &dlg, [this, &dlg]() { dlg.accept(); onCheckForUpdates(); });
+    auto *btnClose = new QPushButton("Close");
+    btnClose->setCursor(Qt::PointingHandCursor);
+    btnClose->setStyleSheet(
+        "QPushButton{background:#F3F4F6; color:#374151; border:none; padding:8px 16px; border-radius:8px; font-weight:600;}"
+        "QPushButton:hover{background:#E5E7EB;}");
+    connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+    btnRow->addWidget(btnUpdate);
+    btnRow->addStretch();
+    btnRow->addWidget(btnClose);
+    lay->addLayout(btnRow);
+
+    dlg.exec();
+}
+
+void MainWindow::onCheckForUpdates() { checkForUpdates(/*interactive=*/true); }
+
+void MainWindow::checkForUpdates(bool interactive) {
+    const QString base = m_db->getSetting("api_url").trimmed();
+    if (base.isEmpty()) {
+        if (interactive)
+            QMessageBox::warning(this, "Check for updates",
+                                 "Set the RiTEMS server URL in Settings first.");
+        return;
+    }
+#if defined(Q_OS_WIN)
+    const QString platform = "windows";
+#else
+    const QString platform = "linux";
+#endif
+    if (!m_updateNam) m_updateNam = new QNetworkAccessManager(this);
+    QUrl url(base + "/api/v1/public/app-releases/latest");
+    QUrlQuery q; q.addQueryItem("platform", platform); url.setQuery(q);
+
+    QNetworkReply *reply = m_updateNam->get(QNetworkRequest(url));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, interactive, base]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            if (interactive)
+                QMessageBox::warning(this, "Check for updates",
+                                     "Could not reach the update server:\n" + reply->errorString());
+            return;
+        }
+        const QJsonObject data = QJsonDocument::fromJson(reply->readAll()).object().value("data").toObject();
+        const QString latest = data.value("version").toString();
+        if (latest.isEmpty()) {
+            if (interactive)
+                QMessageBox::information(this, "Check for updates", "No published version is available yet.");
+            return;
+        }
+        if (compareVersions(BioSync::version(), latest) >= 0) {
+            if (interactive)
+                QMessageBox::information(this, "You're up to date",
+                                        QString("BioSync v%1 is the latest version.").arg(BioSync::version()));
+            return;
+        }
+        QString dl = data.value("downloadUrl").toString();
+        if (dl.startsWith("/")) dl = base + dl;   // server returns a base-relative download path
+        promptAndDownloadUpdate(latest, data.value("changelog").toString(),
+                                dl, data.value("fileName").toString());
+    });
+}
+
+void MainWindow::promptAndDownloadUpdate(const QString &version, const QString &changelog,
+                                         const QString &downloadUrl, const QString &fileName) {
+    if (downloadUrl.isEmpty()) return;
+    QMessageBox box(this);
+    box.setWindowTitle("Update available");
+    box.setIcon(QMessageBox::Information);
+    box.setText(QString("<b>BioSync v%1 is available.</b><br>You have v%2.").arg(version, BioSync::version()));
+    if (!changelog.trimmed().isEmpty()) box.setInformativeText(changelog.trimmed());
+    QPushButton *dl = box.addButton("Download && Install", QMessageBox::AcceptRole);
+    box.addButton("Later", QMessageBox::RejectRole);
+    box.exec();
+    if (box.clickedButton() != dl) return;
+
+    const QString saveName = fileName.isEmpty() ? QString("BioSync_Update_%1").arg(version) : fileName;
+    const QString savePath = QDir(QDir::tempPath()).filePath(saveName);
+
+    auto *prog = new QProgressDialog("Downloading update…", "Cancel", 0, 100, this);
+    prog->setWindowTitle("Updating BioSync");
+    prog->setWindowModality(Qt::WindowModal);
+    prog->setMinimumDuration(0);
+    prog->setValue(0);
+
+    QNetworkReply *reply = m_updateNam->get(QNetworkRequest(QUrl(downloadUrl)));
+    connect(reply, &QNetworkReply::downloadProgress, prog, [prog](qint64 got, qint64 total) {
+        if (total > 0) prog->setValue(int(got * 100 / total));
+    });
+    connect(prog, &QProgressDialog::canceled, reply, &QNetworkReply::abort);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, prog, savePath]() {
+        reply->deleteLater();
+        prog->close();
+        prog->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            QMessageBox::warning(this, "Update failed", "Download failed:\n" + reply->errorString());
+            return;
+        }
+        QSaveFile f(savePath);
+        if (!f.open(QIODevice::WriteOnly) || f.write(reply->readAll()) < 0 || !f.commit()) {
+            QMessageBox::warning(this, "Update failed", "Could not save the installer to:\n" + savePath);
+            return;
+        }
+        QMessageBox::information(this, "Ready to install",
+            "The update was downloaded. The installer will now open — follow its steps to finish "
+            "updating, then BioSync will restart.");
+        // Hand the installer to the OS (Windows: runs the .exe; Linux: opens the .deb installer),
+        // then quit so it can replace the running binary.
+        QDesktopServices::openUrl(QUrl::fromLocalFile(savePath));
+        QTimer::singleShot(1500, qApp, &QApplication::quit);
+    });
 }

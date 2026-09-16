@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(BioSync VERSION 1.1.0 LANGUAGES CXX)
+project(BioSync VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +32,7 @@ set(HEADERS
         src/MainWindow.h
         src/HeadlessRunner.h
         src/AppPaths.h
+        src/Version.h
         src/model/Device.h
         src/model/AttendanceRecord.h
         src/db/Database.h
@@ -66,6 +67,9 @@ target_link_libraries(BioSync PRIVATE
 if(DEFINED BIOSYNC_APP_SECRET)
     target_compile_definitions(BioSync PRIVATE "BIOSYNC_APP_SECRET=\"${BIOSYNC_APP_SECRET}\"")
 endif()
+
+# App version, baked in so the UI, the About panel and the update checker all report the real build.
+target_compile_definitions(BioSync PRIVATE "BIOSYNC_VERSION=\"${PROJECT_VERSION}\"")
 
 if(WIN32)
     target_sources(BioSync PRIVATE src/resources_win.rc)

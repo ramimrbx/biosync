@@ -4,6 +4,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QTimer>
 #include <QMessageBox>
 #include <QNetworkInterface>
 #include <QAbstractSocket>
@@ -133,6 +134,10 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     statusRow->addStretch();
     serverControlLayout->addLayout(statusRow);
     serverControlLayout->addLayout(serverBtnRow);
+    m_actionToast = new QLabel();
+    m_actionToast->setStyleSheet("font-size:12px; font-weight:600; padding:2px 0;");
+    m_actionToast->setVisible(false);
+    serverControlLayout->addWidget(m_actionToast);
     serverControlLayout->addWidget(hint("Start/Stop the ADMS listener. Restart applies new port settings immediately."));
 
     m_autoStart = new QCheckBox("  Start BioSync automatically when Windows starts");
@@ -265,6 +270,14 @@ void SettingsPage::updateServerStatus(bool running, quint16 port) {
         m_btnStop->setEnabled(false);
         m_btnRestart->setEnabled(false);
     }
+}
+
+void SettingsPage::flashServerAction(const QString &message, bool ok) {
+    m_actionToast->setText((ok ? "✓  " : "⚠  ") + message);
+    m_actionToast->setStyleSheet(QString("font-size:12px; font-weight:600; padding:2px 0; color:%1;")
+                                     .arg(ok ? "#10B981" : "#EF4444"));
+    m_actionToast->setVisible(true);
+    QTimer::singleShot(5000, m_actionToast, [this]() { m_actionToast->setVisible(false); });
 }
 
 QLabel *SettingsPage::styledLabel(const QString &text) {

@@ -17,6 +17,7 @@
 #include "ui/BiometricBackupDialog.h"
 
 class NavButton;
+class QNetworkAccessManager;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -50,6 +51,8 @@ private slots:
     void onServerStart();
     void onServerStop();
     void onServerRestart();
+    void onShowAbout();
+    void onCheckForUpdates();       // manual "Check for updates" (shows result either way)
 
 private:
     Database      *m_db;
@@ -75,6 +78,13 @@ private:
     void setupTray();
     void startServer();
     void reloadApiConfig();
+
+    // Update checking: queries <api_url>/api/v1/app-releases/latest and, if a newer version exists,
+    // offers to download + launch the installer. interactive=false stays silent when up to date.
+    void checkForUpdates(bool interactive);
+    void promptAndDownloadUpdate(const QString &version, const QString &changelog,
+                                 const QString &downloadUrl, const QString &fileName);
+    QNetworkAccessManager *m_updateNam = nullptr;
     void updateServerStatus(bool running, quint16 port);
     void syncKnownSerials();
     int  autoRegisterDevice(const QString &serial, const QString &ip);

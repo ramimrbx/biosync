@@ -3,6 +3,17 @@
 All notable changes to BioSync are recorded here. Installing a newer version over an older one
 upgrades in place — your configuration, devices and pending records are kept.
 
+## 1.2.0 — 2026-09-16
+- **About panel** — click the version at the bottom of the sidebar to see the build version, whether
+  it is an official **signed** build (with a safe key fingerprint), and the configured server.
+- **Check for updates + auto-update** — BioSync now checks RiTEMS for a newer published version on
+  startup and once a day, and you can check on demand from the About panel. When a newer version
+  exists it shows the changelog and can download the installer and launch it to update in place.
+- **Restart feedback** — the server Restart button now confirms in the window (and via a tray
+  notification) that the attendance server restarted and on which port, instead of appearing to do
+  nothing.
+- The sidebar now shows the real build version (it was hard-coded before).
+
 ## 1.1.0 — 2026-09-16
 - **Headless boot service** — BioSync now runs without any login and without opening a window. On
   Linux it installs a systemd service; on Windows it registers a startup task that runs as SYSTEM.
