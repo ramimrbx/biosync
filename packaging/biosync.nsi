@@ -1,17 +1,19 @@
 Unicode true
 !include "MUI2.nsh"
-!define APP "BioSync"
-!define PUB "Right iTech"
-!define VER "1.2.0"
+; Metadata comes from appinfo.cmake via the CMake-generated appinfo.nsh — edit appinfo.cmake, not here.
+!include "appinfo.nsh"
+!define APP "${APP_NAME}"
+!define PUB "${APP_PUBLISHER}"
+!define VER "${APP_VERSION}"
 !define RUNKEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\BioSync"
 
-Name "BioSync"
-OutFile "BioSync_Setup_v1.2.0.exe"
+Name "${APP}"
+OutFile "BioSync_Setup_v${VER}.exe"
 InstallDir "$PROGRAMFILES64\${PUB}\${APP}"
 RequestExecutionLevel admin
 ShowInstDetails show
-BrandingText "BioSync ${VER} — Right iTech"
+BrandingText "${APP} ${VER} — ${PUB}"
 !define MUI_ICON "icon.ico"
 !define MUI_UNICON "icon.ico"
 

@@ -1,0 +1,7 @@
+; AUTO-GENERATED from appinfo.cmake by CMake (configure step). Do not edit — edit appinfo.cmake.
+!define APP_NAME       "@APP_NAME@"
+!define APP_PUBLISHER  "@APP_PUBLISHER@"
+!define APP_VERSION    "@APP_VERSION@"
+!define APP_URL        "@APP_URL@"
+!define SUPPORT_EMAIL  "@SUPPORT_EMAIL@"
+!define SUPPORT_PHONE  "@SUPPORT_PHONE@"

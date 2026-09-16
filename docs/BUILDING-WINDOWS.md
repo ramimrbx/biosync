@@ -78,10 +78,15 @@ You now have `build\BioSync.exe` plus its Qt DLLs — a signed, official build.
 The Inno Setup script installs the app, registers the **headless boot task** (runs at startup as
 SYSTEM, no login, no window) and the firewall rule. Point it at your build output and compile:
 
-1. Open `installer\windows\BioSync.iss` in Inno Setup.
-2. Set `#define MyBuildDir` to your `build` folder (the one holding `BioSync.exe` + DLLs).
-3. Confirm `#define MyAppVersion` matches `project(BioSync VERSION x.y.z)` in `CMakeLists.txt`.
+1. Run CMake configure first (step 3 above) — it generates `installer\windows\appinfo.iss`, which the
+   script includes for the app name/version/publisher. (You've already done this to build the `.exe`.)
+2. Open `installer\windows\BioSync.iss` in Inno Setup.
+3. Set `#define MyBuildDir` to your `build` folder (the one holding `BioSync.exe` + DLLs).
 4. *Build → Compile*. Output: `BioSync_Setup_v<version>.exe`.
+
+> **Name, version, publisher, support email/phone all live in one file — `appinfo.cmake`.** Edit only
+> that; CMake feeds the value into the binary, the About panel, the `.deb`, and both installers. You
+> never bump the version in more than one place.
 
 Because the installer keeps the same `AppId` and bumps `AppVersion`, installing it over an older
 version is a true **in-place upgrade** — devices, config and pending records are kept, no fresh

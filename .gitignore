@@ -11,3 +11,7 @@ build-verify/
 
 # App-signing secret — real key lives here, never committed (see secret.env.example)
 secret.env
+
+# Generated from appinfo.cmake at configure time (edit appinfo.cmake, not these)
+packaging/appinfo.nsh
+installer/windows/appinfo.iss

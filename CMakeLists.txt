@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
-project(BioSync VERSION 1.2.0 LANGUAGES CXX)
+
+# All app metadata (name, publisher, version, support email/phone, URL) lives in ONE place.
+# Edit appinfo.cmake only — it drives the binary, the .deb, and the Windows installers.
+include(${CMAKE_CURRENT_SOURCE_DIR}/appinfo.cmake)
+
+project(BioSync VERSION ${APP_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -96,8 +101,23 @@ else()
                     "reject its pushes. Copy secret.env.example to secret.env and set your key.")
 endif()
 
-# App version, baked in so the UI, the About panel and the update checker all report the real build.
-target_compile_definitions(BioSync PRIVATE "BIOSYNC_VERSION=\"${PROJECT_VERSION}\"")
+# App metadata (from appinfo.cmake), baked in so the UI / About panel / update checker report it.
+target_compile_definitions(BioSync PRIVATE
+    "BIOSYNC_VERSION=\"${APP_VERSION}\""
+    "APP_NAME=\"${APP_NAME}\""
+    "APP_PUBLISHER=\"${APP_PUBLISHER}\""
+    "APP_URL=\"${APP_URL}\""
+    "SUPPORT_EMAIL=\"${SUPPORT_EMAIL}\""
+    "SUPPORT_PHONE=\"${SUPPORT_PHONE}\""
+)
+
+# Generate the installer metadata includes from the same single source (appinfo.cmake), so the NSIS
+# and Inno Setup scripts never hard-code version/name/publisher — they !include / #include these.
+# Regenerated on every configure; the generated files are gitignored.
+configure_file("${CMAKE_SOURCE_DIR}/packaging/appinfo.nsh.in"
+               "${CMAKE_SOURCE_DIR}/packaging/appinfo.nsh" @ONLY)
+configure_file("${CMAKE_SOURCE_DIR}/installer/windows/appinfo.iss.in"
+               "${CMAKE_SOURCE_DIR}/installer/windows/appinfo.iss" @ONLY)
 
 if(WIN32)
     target_sources(BioSync PRIVATE src/resources_win.rc)
@@ -131,13 +151,13 @@ if(UNIX AND NOT APPLE)
 
     set(CPACK_GENERATOR "DEB")
     set(CPACK_PACKAGE_NAME "biosync")
-    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-    set(CPACK_PACKAGE_CONTACT "Right iTech <info@ritems.io>")
-    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Right iTech <info@ritems.io>")
-    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "BioSync — ZKTeco biometric attendance bridge for RiTEMS")
+    set(CPACK_PACKAGE_VERSION "${APP_VERSION}")
+    set(CPACK_PACKAGE_CONTACT "${APP_PUBLISHER} <${SUPPORT_EMAIL}>")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "${APP_PUBLISHER} <${SUPPORT_EMAIL}>")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${APP_NAME} — ZKTeco biometric attendance bridge for RiTEMS")
     set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
     set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
-    set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://ritems.io")
+    set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "${APP_URL}")
     # Auto-resolve the exact Qt/libc runtime dependencies from the linked binary.
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6sql6-sqlite")

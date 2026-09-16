@@ -11,10 +11,31 @@
 #ifndef BIOSYNC_APP_SECRET
 #define BIOSYNC_APP_SECRET ""
 #endif
+// App metadata — injected from appinfo.cmake at build time (see CMakeLists.txt).
+#ifndef APP_NAME
+#define APP_NAME "BioSync"
+#endif
+#ifndef APP_PUBLISHER
+#define APP_PUBLISHER "Right iTech"
+#endif
+#ifndef APP_URL
+#define APP_URL "https://ritems.io"
+#endif
+#ifndef SUPPORT_EMAIL
+#define SUPPORT_EMAIL ""
+#endif
+#ifndef SUPPORT_PHONE
+#define SUPPORT_PHONE ""
+#endif
 
 namespace BioSync {
 
-inline QString version() { return QStringLiteral(BIOSYNC_VERSION); }
+inline QString version()       { return QStringLiteral(BIOSYNC_VERSION); }
+inline QString appName()       { return QStringLiteral(APP_NAME); }
+inline QString publisher()     { return QStringLiteral(APP_PUBLISHER); }
+inline QString appUrl()        { return QStringLiteral(APP_URL); }
+inline QString supportEmail()  { return QStringLiteral(SUPPORT_EMAIL); }
+inline QString supportPhone()  { return QStringLiteral(SUPPORT_PHONE); }
 
 // True when this build was compiled with the shared app secret (i.e. an official/signed build whose
 // pushes RiTEMS will accept).

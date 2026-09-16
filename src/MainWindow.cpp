@@ -130,7 +130,7 @@ void MainWindow::setupUi() {
         "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
         "stop:0 %1, stop:1 %2);").arg(C_BRAND, C_BRAND_DARK));
 
-    auto *logoTitle = new QLabel("BioSync");
+    auto *logoTitle = new QLabel(BioSync::appName());
     logoTitle->setAlignment(Qt::AlignCenter);
     logoTitle->setStyleSheet("color:#FFFFFF; font-size:22px; font-weight:700; letter-spacing:1px;");
     auto *logoSub = new QLabel("Attendance Manager");
@@ -611,11 +611,11 @@ void MainWindow::onShowAbout() {
     lay->setContentsMargins(24, 22, 24, 20);
     lay->setSpacing(6);
 
-    auto *title = new QLabel("BioSync");
+    auto *title = new QLabel(BioSync::appName());
     title->setStyleSheet("font-size:22px; font-weight:800; color:#8222E3;");
     lay->addWidget(title);
 
-    auto *ver = new QLabel(QString("Version %1").arg(BioSync::version()));
+    auto *ver = new QLabel(QString("Version %1  ·  by %2").arg(BioSync::version(), BioSync::publisher()));
     ver->setStyleSheet("font-size:13px; color:#6B7280;");
     lay->addWidget(ver);
     lay->addSpacing(10);
@@ -642,6 +642,18 @@ void MainWindow::onShowAbout() {
 #endif
     plat->setStyleSheet("font-size:12px; color:#6B7280;");
     lay->addWidget(plat);
+
+    // Support contacts (shown only when configured in appinfo.cmake).
+    QStringList support;
+    if (!BioSync::supportEmail().isEmpty()) support << BioSync::supportEmail();
+    if (!BioSync::supportPhone().isEmpty()) support << BioSync::supportPhone();
+    if (!support.isEmpty()) {
+        auto *sup = new QLabel("Support: " + support.join("  ·  "));
+        sup->setStyleSheet("font-size:12px; color:#6B7280;");
+        sup->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        sup->setWordWrap(true);
+        lay->addWidget(sup);
+    }
     lay->addSpacing(16);
 
     auto *btnRow = new QHBoxLayout();
