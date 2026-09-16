@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(BioSync VERSION 1.0.0 LANGUAGES CXX)
+project(BioSync VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -58,6 +58,14 @@ target_link_libraries(BioSync PRIVATE
         Qt6::Network
         Qt6::Sql
 )
+
+# App-signing secret, baked into the binary at build time (NEVER committed). Pass at configure time:
+#   cmake -B build -DBIOSYNC_APP_SECRET=<secret>
+# RiTEMS verifies each push's HMAC signature against the same secret (stored in its gateway config),
+# so a leaked BioSync API key alone cannot forge attendance.
+if(DEFINED BIOSYNC_APP_SECRET)
+    target_compile_definitions(BioSync PRIVATE "BIOSYNC_APP_SECRET=\"${BIOSYNC_APP_SECRET}\"")
+endif()
 
 if(WIN32)
     target_sources(BioSync PRIVATE src/resources_win.rc)

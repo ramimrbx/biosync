@@ -2,12 +2,12 @@ Unicode true
 !include "MUI2.nsh"
 !define APP "BioSync"
 !define PUB "Right iTech"
-!define VER "1.0.0"
+!define VER "1.1.0"
 !define RUNKEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\BioSync"
 
 Name "BioSync"
-OutFile "BioSync_Setup_v1.0.0.exe"
+OutFile "BioSync_Setup_v1.1.0.exe"
 InstallDir "$PROGRAMFILES64\${PUB}\${APP}"
 RequestExecutionLevel admin
 ShowInstDetails show

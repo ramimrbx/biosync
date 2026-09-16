@@ -5,6 +5,26 @@
 #include <QJsonArray>
 #include <QUrl>
 #include <QDebug>
+#include <QMessageAuthenticationCode>
+#include <QCryptographicHash>
+#include <QDateTime>
+
+// The app-signing secret is baked in at build time (-DBIOSYNC_APP_SECRET=...), never stored in
+// config or the repo. Empty in an unsigned/dev build.
+#ifndef BIOSYNC_APP_SECRET
+#define BIOSYNC_APP_SECRET ""
+#endif
+
+// Signs a request: X-BioSync-Signature = HMAC-SHA256(secret, "<timestamp>.<body>"), X-BioSync-Timestamp.
+static void signRequest(QNetworkRequest &req, const QByteArray &body) {
+    static const QByteArray secret = QByteArrayLiteral(BIOSYNC_APP_SECRET);
+    if (secret.isEmpty()) return;
+    const QByteArray ts = QByteArray::number(QDateTime::currentMSecsSinceEpoch());
+    const QByteArray sig = QMessageAuthenticationCode::hash(
+        ts + "." + body, secret, QCryptographicHash::Sha256).toHex();
+    req.setRawHeader("X-BioSync-Timestamp", ts);
+    req.setRawHeader("X-BioSync-Signature", sig);
+}
 
 ApiPusher::ApiPusher(Database *db, QObject *parent)
     : QObject(parent), m_db(db)
@@ -106,16 +126,21 @@ void ApiPusher::doPush() {
         payload["institutionId"] = static_cast<qint64>(m_institutionId);
         payload["records"]       = recordsArr;
 
+        const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+
         QNetworkRequest req(QUrl(m_apiUrl + "/api/v1/biosync/push"));
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         req.setRawHeader("X-BioSync-Key", m_apiKey.toUtf8());
+        // Prove this push came from a genuine BioSync build: HMAC-SHA256 over "<timestamp>.<body>"
+        // with the app secret baked into this binary (never in config or on the wire). RiTEMS rejects
+        // any push whose signature it can't verify, so a leaked API key alone cannot forge attendance.
+        signRequest(req, body);
         req.setTransferTimeout(60000);   // generous timeout for large payloads
 
         QList<int> batchIds;
         for (const auto &r : it.value()) batchIds.append(r.id);
 
-        QNetworkReply *reply = m_nam->post(req,
-            QJsonDocument(payload).toJson(QJsonDocument::Compact));
+        QNetworkReply *reply = m_nam->post(req, body);
 
         connect(reply, &QNetworkReply::finished, this, [this, reply, batchIds, counter]() {
             int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();

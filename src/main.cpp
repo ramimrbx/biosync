@@ -79,7 +79,7 @@ int main(int argc, char *argv[]) {
     if (headless) {
         QCoreApplication::setApplicationName("BioSync");
         QCoreApplication::setOrganizationName("Right iTech");
-        QCoreApplication::setApplicationVersion("1.0.0");
+        QCoreApplication::setApplicationVersion("1.1.0");
         QCoreApplication app(argc, argv);
         HeadlessRunner runner;
         if (!runner.start()) return 1;
@@ -96,7 +96,7 @@ int main(int argc, char *argv[]) {
     // running instance and ask the user to close it before replacing files.
     CreateMutexW(nullptr, FALSE, L"BioSyncSingleInstanceMutex");
 #endif
-    QApplication::setApplicationVersion("1.0.0");
+    QApplication::setApplicationVersion("1.1.0");
     QApplication::setDesktopFileName("biosync");   // matches biosync.desktop
 
     QApplication app(argc, argv);
