@@ -10,7 +10,8 @@ QT_WIN="$QT_ROOT/mingw_64"; QT_HOST="$QT_ROOT/gcc_64"
 cmake -S "$HERE" -B "$HERE/build-win" \
   -DCMAKE_TOOLCHAIN_FILE="$HERE/packaging/mingw-w64.cmake" \
   -DCMAKE_PREFIX_PATH="$QT_WIN" -DQT_HOST_PATH="$QT_HOST" \
-  -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_BUILD_TYPE=Release \
+  ${BIOSYNC_APP_SECRET:+-DBIOSYNC_APP_SECRET="$BIOSYNC_APP_SECRET"}
 cmake --build "$HERE/build-win" -j"$(nproc)"
 
 S="$HERE/packaging/stage"; rm -rf "$S"; mkdir -p "$S"/{platforms,sqldrivers,tls,styles,imageformats}
@@ -23,4 +24,4 @@ cp "$QT_WIN/plugins/styles/qmodernwindowsstyle.dll" "$S/styles/" || true
 cp "$QT_WIN/plugins/imageformats/qico.dll"         "$S/imageformats/" || true
 cp "$HERE/src/assets/images/icon.ico" "$HERE/packaging/icon.ico"
 ( cd "$HERE/packaging" && makensis -V2 biosync.nsi )
-echo "Installer: $HERE/packaging/BioSync_Setup_v1.0.0.exe"
+echo "Installer: $HERE/packaging/BioSync_Setup_v1.1.0.exe"
