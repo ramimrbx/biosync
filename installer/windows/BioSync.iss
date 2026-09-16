@@ -5,7 +5,9 @@
 ; appinfo.iss — edit appinfo.cmake, not here. (Run CMake configure once so appinfo.iss exists.)
 #include "appinfo.iss"
 #define MyAppExeName "BioSync.exe"
-#define MyBuildDir "C:\Users\ramim\Projects\Software\biosync\cmake-build-release"
+; Resolved relative to this script's own location, so the build works from any checkout path/machine.
+#define MyRepoRoot AddBackslash(SourcePath) + "..\.."
+#define MyBuildDir MyRepoRoot + "\cmake-build-release"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -31,10 +33,10 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 DisableProgramGroupPage=yes
-OutputDir=C:\Users\ramim\Projects\Software\biosync\installer\windows
+OutputDir={#SourcePath}
 OutputBaseFilename=BioSync_Setup_v{#MyAppVersion}
 
-SetupIconFile=C:\Users\ramim\Projects\Software\biosync\src\assets\images\icon.ico
+SetupIconFile={#MyRepoRoot}\src\assets\images\icon.ico
 
 Compression=lzma2/max
 SolidCompression=yes
