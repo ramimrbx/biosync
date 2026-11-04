@@ -16,12 +16,15 @@ cmake --build "$HERE/build-win" -j"$(nproc)"
 
 S="$HERE/packaging/stage"; rm -rf "$S"; mkdir -p "$S"/{platforms,sqldrivers,tls,styles,imageformats}
 cp "$HERE/build-win/BioSync.exe" "$S/"
-for d in Qt6Core Qt6Gui Qt6Widgets Qt6Network Qt6Sql libgcc_s_seh-1 libstdc++-6 libwinpthread-1; do cp "$QT_WIN/bin/$d.dll" "$S/"; done
+for d in Qt6Core Qt6Gui Qt6Widgets Qt6Network Qt6Sql Qt6Svg libgcc_s_seh-1 libstdc++-6 libwinpthread-1; do cp "$QT_WIN/bin/$d.dll" "$S/"; done
 cp "$QT_WIN/plugins/platforms/qwindows.dll"        "$S/platforms/"
 cp "$QT_WIN/plugins/sqldrivers/qsqlite.dll"        "$S/sqldrivers/"
 cp "$QT_WIN/plugins/tls/qschannelbackend.dll"      "$S/tls/"
 cp "$QT_WIN/plugins/styles/qmodernwindowsstyle.dll" "$S/styles/" || true
 cp "$QT_WIN/plugins/imageformats/qico.dll"         "$S/imageformats/" || true
+# SVG icons (src/assets/icons) need the svg image-format + icon-engine plugins.
+cp "$QT_WIN/plugins/imageformats/qsvg.dll"         "$S/imageformats/"
+mkdir -p "$S/iconengines"; cp "$QT_WIN/plugins/iconengines/qsvgicon.dll" "$S/iconengines/"
 cp "$HERE/src/assets/images/icon.ico" "$HERE/packaging/icon.ico"
 ( cd "$HERE/packaging" && makensis -V2 biosync.nsi )
 VER="$(sed -n 's/^set(APP_VERSION *"\(.*\)")/\1/p' "$HERE/appinfo.cmake")"

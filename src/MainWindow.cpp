@@ -420,6 +420,15 @@ void MainWindow::probePort(quint16 port, std::function<void(bool, QString)> done
     });
 }
 
+// Show the outcome of a server action both on the Settings page (toast) and as a tray notification,
+// so it is visible wherever the user is looking.
+void MainWindow::notifyServer(const QString &message, bool ok) {
+    m_settingsPage->flashServerAction(message, ok);
+    if (m_trayIcon && m_trayIcon->isVisible())
+        m_trayIcon->showMessage("BioSync — Attendance Server", message,
+            ok ? QSystemTrayIcon::Information : QSystemTrayIcon::Warning, 4000);
+}
+
 static QColor toneColor(MainWindow::Tone tone) {
     const ThemePalette &t = Theme::current();
     switch (tone) {
@@ -469,6 +478,8 @@ void MainWindow::setMode(ServerMode mode, quint16 port, const QString &detail) {
         m_settingsPage->showServerState(
             QString("⚠ Background service is waiting for port %1 — another program is using it").arg(p),
             SettingsPage::StateTone::Warn, false, false, false);
+        if (changed) notifyServer(QString("Port %1 is used by another program — the attendance server "
+                                          "will start as soon as it is free.").arg(p), false);
         if (changed) onLogMessage({}, QString("Port %1 is used by another program; the BioSync background "
                                               "service will start as soon as it is free. Change the port in "
                                               "Settings if this persists.").arg(p));
@@ -482,6 +493,8 @@ void MainWindow::setMode(ServerMode mode, quint16 port, const QString &detail) {
         m_settingsPage->showServerState(
             QString("✕ Port %1 is used by another program (not BioSync)").arg(p), SettingsPage::StateTone::Error,
             /*start*/true, false, false);
+        if (changed) notifyServer(QString("Attendance server can't start: port %1 is used by another "
+                                          "program (%2).").arg(p, detail), false);
         if (changed) onLogMessage({}, QString("Attendance server can't start: port %1 is used by another "
                                               "program (%2). Close it or choose a different port in Settings.")
                                               .arg(p, detail));
@@ -686,7 +699,15 @@ void MainWindow::onRestoreTemplates(const QString &serial) {
 
 void MainWindow::onServerStart() {
     m_userStopped = false;
+    m_settingsPage->flashServerAction("Starting attendance server…", true);
     supervise();
+    // supervise() probes the port asynchronously; report the outcome once it has settled.
+    QTimer::singleShot(2500, this, [this]() {
+        const QString port = m_db->getSetting("server_port", "8085");
+        if (m_mode == ServerMode::Engine || m_mode == ServerMode::Service)
+            notifyServer(QString("Attendance server is running on port %1.").arg(port), true);
+        // Conflict / waiting already notified with the reason by setMode().
+    });
 }
 
 void MainWindow::onServerStop() {
@@ -694,14 +715,16 @@ void MainWindow::onServerStop() {
     m_userStopped = true;
     m_engine->stop();
     setMode(ServerMode::Stopped, 0);
+    notifyServer("Attendance server stopped — devices can't send punches until you start it again.", true);
+    onLogMessage({}, "Attendance server stopped by the user.");
 }
 
 void MainWindow::onServerRestart() {
     if (m_mode == ServerMode::Service) {
         // The background service restarts its own server when it sees this (within ~2s).
         m_db->setSetting("engine_restart_request", QString::number(QDateTime::currentMSecsSinceEpoch()));
-        const QString msg = "Restart sent to the BioSync background service.";
-        m_settingsPage->flashServerAction(msg, true);
+        const QString msg = "Restart sent to the BioSync background service — it restarts within a few seconds.";
+        notifyServer(msg, true);
         onLogMessage({}, msg);
         return;
     }
@@ -714,12 +737,9 @@ void MainWindow::onServerRestart() {
     if (ok) setMode(ServerMode::Engine, port);
     else supervise();
     const QString msg = ok ? QString("Attendance server restarted on port %1.").arg(port)
-                           : "Attendance server failed to restart — check the port setting.";
-    m_settingsPage->flashServerAction(msg, ok);
+                           : QString("Attendance server failed to restart: %1").arg(m_engine->lastErrorString());
+    notifyServer(msg, ok);
     onLogMessage({}, msg);
-    if (m_trayIcon && m_trayIcon->isVisible())
-        m_trayIcon->showMessage("BioSync — Server Restart", msg,
-            ok ? QSystemTrayIcon::Information : QSystemTrayIcon::Warning, 3000);
 }
 
 void MainWindow::onNavItemChanged(int row) {

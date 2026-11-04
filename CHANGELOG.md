@@ -3,6 +3,25 @@
 All notable changes to BioSync are recorded here. Installing a newer version over an older one
 upgrades in place — your configuration, devices and pending records are kept.
 
+## 1.4.1 — 2026-11-04
+Everything from 1.3.2 (new design, splash screen, light/dark theme, icons) plus:
+- **No more "Attendance server failed to start on port 8085 — address already in use".** The
+  background service and the BioSync window no longer fight over the port. The service owns it; when
+  you open the window it detects the service and shows its live status (devices, punches, logs)
+  instead of trying to start a second server. If the service isn't running, the window runs the
+  server itself — and hands it back automatically when the service starts.
+- **Only one BioSync window.** Opening BioSync again brings the open window to the front instead of
+  starting another copy (a silent sign-in launch just stays in the tray).
+- **Punches are never lost when a sync fails.** Before, a single failed send (a short internet drop,
+  server restart, timeout) marked punches failed and they were never sent again. Now they stay
+  queued and retry automatically (15s, 30s, 1m … up to every 5 min) until RiTEMS accepts them;
+  punches stuck by earlier versions are re-queued once on upgrade. Large backlogs go in batches of 500.
+- **Background service never gives up.** If the port is busy at boot it waits and retries instead of
+  exiting; on Windows the startup task is no longer stopped after 3 days of uptime or on battery.
+- **Device commands work while the service runs.** Restart device, biometric backup and restore are
+  delivered through the background service.
+- Restart and port changes in Settings apply to the background service within seconds.
+
 ## 1.3.2 — 2026-09-17
 - **Fixed "address already in use" after a manual update** — installing a new version by
   downloading and running the installer directly (rather than through the in-app updater) could

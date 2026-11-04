@@ -127,4 +127,5 @@ private:
     void setStatusApi(const QString &text, Tone tone);
     Tone m_serverTone = Tone::Muted;
     Tone m_apiTone = Tone::Muted;
+    void notifyServer(const QString &message, bool ok);
 };
