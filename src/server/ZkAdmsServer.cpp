@@ -19,11 +19,13 @@ bool ZkAdmsServer::start(quint16 port) {
     connect(m_server, &QTcpServer::newConnection, this, &ZkAdmsServer::onNewConnection);
 
     if (!m_server->listen(QHostAddress::AnyIPv4, port)) {
+        m_lastError = m_server->errorString();
         emit logMessage({}, QString("Failed to start server on port %1: %2")
-                        .arg(port).arg(m_server->errorString()));
+                        .arg(port).arg(m_lastError));
         return false;
     }
 
+    m_lastError.clear();
     emit logMessage({}, QString("ZKTeco ADMS server started on port %1").arg(port));
     return true;
 }

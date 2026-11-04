@@ -288,6 +288,28 @@ int Database::getPendingCount() const {
     return 0;
 }
 
+int Database::getFailedCount() const {
+    QSqlQuery q(m_db);
+    q.exec("SELECT COUNT(*) FROM attendance_records WHERE sync_status='failed'");
+    if (q.next()) return q.value(0).toInt();
+    return 0;
+}
+
+bool Database::retryFailedRecords(const QList<int> &ids) {
+    QSqlQuery q(m_db);
+    if (ids.isEmpty()) {
+        q.prepare("UPDATE attendance_records SET sync_status='pending', error_message=NULL "
+                  "WHERE sync_status='failed'");
+        return q.exec();
+    }
+    QStringList placeholders;
+    for (int i = 0; i < ids.size(); ++i) placeholders << "?";
+    q.prepare(QString("UPDATE attendance_records SET sync_status='pending', error_message=NULL "
+                       "WHERE sync_status='failed' AND id IN (%1)").arg(placeholders.join(",")));
+    for (int id : ids) q.addBindValue(id);
+    return q.exec();
+}
+
 void Database::appendLog(const QString &deviceSerial, const QString &message) {
     QSqlQuery q(m_db);
     q.prepare("INSERT INTO device_logs(device_serial, message) VALUES(?, ?)");

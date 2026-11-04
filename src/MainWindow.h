@@ -18,6 +18,7 @@
 
 class NavButton;
 class QNetworkAccessManager;
+class QPushButton;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -53,6 +54,9 @@ private slots:
     void onServerRestart();
     void onShowAbout();
     void onCheckForUpdates();       // manual "Check for updates" (shows result either way)
+    void onRetryFailedRequested();
+    void onRetryOneRequested(int recordId);
+    void applyTheme();
 
 private:
     Database      *m_db;
@@ -61,22 +65,36 @@ private:
 
     QStackedWidget *m_stack;
     QAbstractButton *m_navBtns[4];
+    QWidget *m_sidebar;
+    QWidget *m_logoArea;
+    QLabel *m_logoMark;
+    QLabel *m_logoTitle;
+    QPushButton *m_versionBtn;
+    QWidget *m_contentArea;
     QLabel *m_statusServer;
     QLabel *m_statusApi;
     QLabel *m_statusPending;
+    QLabel *m_statusDot1;
+    QLabel *m_statusDot2;
+    bool m_serverRunning = false;
+    quint16 m_serverPort = 0;
+    bool m_apiOnline = false;
 
     DevicesPage    *m_devicesPage;
     AttendancePage *m_attendancePage;
     LogsPage       *m_logsPage;
     SettingsPage   *m_settingsPage;
 
-    QSystemTrayIcon *m_trayIcon;
+    QSystemTrayIcon *m_trayIcon = nullptr;
     QHash<QString, bool>                m_deviceOnlineMap;
     QHash<QString, BiometricBackupDialog*> m_backupDialogs;
 
     void setupUi();
     void setupTray();
-    void startServer();
+    // Returns whether the ADMS server bound its port. On failure, surfaces the error via the
+    // Settings-page toast and a tray notification (see MainWindow.cpp) — a silent failure here
+    // used to mean the only way to notice a bind failure was to go read the Logs page.
+    bool startServer();
     void reloadApiConfig();
 
     // Update checking: queries <api_url>/api/v1/app-releases/latest and, if a newer version exists,

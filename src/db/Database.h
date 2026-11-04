@@ -33,6 +33,10 @@ public:
     QList<AttendanceRecord> getRecentRecords(int limit = 200) const;
     QList<AttendanceRecord> getRecordsByDevice(const QString &serial, int limit = 200) const;
     int getPendingCount() const;
+    int getFailedCount() const;
+    // Resets 'failed' rows back to 'pending' so the next push retries them. Empty ids retries
+    // every failed row; otherwise only the given ids (still gated to currently-failed rows).
+    bool retryFailedRecords(const QList<int> &ids = {});
 
     // Device logs
     void appendLog(const QString &deviceSerial, const QString &message);

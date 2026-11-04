@@ -24,7 +24,9 @@ bool Autostart::setEnabled(bool enable) {
     QSettings run(QString::fromLatin1(RUN_KEY), QSettings::NativeFormat);
     if (enable) {
         // Quote the path so a Program Files path with spaces is launched as one argument.
-        run.setValue(QString::fromLatin1(ENTRY_NAME), QString("\"%1\"").arg(appPath()));
+        // --autostart tells main() this is a silent login launch, so it shows the splash but
+        // then settles straight into the tray instead of popping the main window open.
+        run.setValue(QString::fromLatin1(ENTRY_NAME), QString("\"%1\" --autostart").arg(appPath()));
     } else {
         run.remove(QString::fromLatin1(ENTRY_NAME));
     }
@@ -34,7 +36,12 @@ bool Autostart::setEnabled(bool enable) {
 
 bool Autostart::isEnabled() {
     QSettings run(QString::fromLatin1(RUN_KEY), QSettings::NativeFormat);
-    return run.contains(QString::fromLatin1(ENTRY_NAME));
+    const QString value = run.value(QString::fromLatin1(ENTRY_NAME)).toString();
+    if (value.isEmpty()) return false;
+    // Upgrade path: an entry written before --autostart existed still works (it just shows the
+    // main window on login), but rewrite it now so it picks up the tray-only launch behavior.
+    if (!value.contains(QStringLiteral("--autostart"))) setEnabled(true);
+    return true;
 }
 
 #else   // Linux / other: freedesktop autostart entry

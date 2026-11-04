@@ -1,6 +1,10 @@
 #include <windows.h>
 IDI_ICON1               ICON    DISCARDABLE     "assets/images/icon.ico"
 
+// Declares PerMonitorV2 DPI awareness so Windows never falls back to blurry bitmap-stretch
+// scaling for this (MinGW-built, so not auto-manifested by qtmain) executable.
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "app.manifest"
+
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 1,0,0,0
  PRODUCTVERSION 1,0,0,0

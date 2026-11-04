@@ -12,7 +12,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Sql)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Sql Svg)
 
 set(SOURCES
         src/assets/resources.qrc
@@ -31,6 +31,9 @@ set(SOURCES
         src/ui/AddDeviceDialog.cpp
         src/ui/DeviceDiscoveryDialog.cpp
         src/ui/BiometricBackupDialog.cpp
+        src/ui/Theme.cpp
+        src/ui/Icons.cpp
+        src/ui/SplashScreen.cpp
 )
 
 set(HEADERS
@@ -53,6 +56,9 @@ set(HEADERS
         src/ui/DeviceDiscoveryDialog.h
         src/ui/BiometricBackupDialog.h
         src/model/BiometricTemplate.h
+        src/ui/Theme.h
+        src/ui/Icons.h
+        src/ui/SplashScreen.h
 )
 
 add_executable(BioSync ${SOURCES} ${HEADERS})
@@ -63,6 +69,7 @@ target_link_libraries(BioSync PRIVATE
         Qt6::Widgets
         Qt6::Network
         Qt6::Sql
+        Qt6::Svg
 )
 
 # App-signing secret, baked into the binary at build time (NEVER committed). RiTEMS verifies each

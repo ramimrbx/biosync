@@ -1,4 +1,6 @@
 #include "SettingsPage.h"
+#include "Theme.h"
+#include "Icons.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -14,41 +16,19 @@
 #include <QSpacerItem>
 #include "../service/Autostart.h"
 
-static QString inputStyle() {
-    return "QLineEdit, QSpinBox {"
-           "  background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:8px;"
-           "  padding:10px 12px; min-height:22px; font-size:14px; color:#111827;"
-           "}"
-           "QLineEdit:focus, QSpinBox:focus {"
-           "  border-color:#8222E3;"
-           "}"
-           "QSpinBox::up-button, QSpinBox::down-button { width:20px; border-radius:4px; }";
-}
-
-static QString cardStyle() {
-    return "QGroupBox {"
-           "  background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:12px;"
-           "  padding:20px; margin-top:8px; font-size:13px; font-weight:600; color:#111827;"
-           "}"
-           "QGroupBox::title { subcontrol-origin:margin; left:16px; padding:0 8px;"
-           "  background:#FFFFFF; color:#111827; }";
-}
-
 SettingsPage::SettingsPage(Database *db, QWidget *parent)
     : QWidget(parent), m_db(db)
 {
-    setStyleSheet("background:#F4F6FB;");
-
     // ── Header ────────────────────────────────────────────────────────────────
     auto *header = new QWidget();
-    header->setStyleSheet("background:#FFFFFF; border-bottom:1.5px solid #E5E7EB;");
+    header->setObjectName("settingsHeader");
     header->setFixedHeight(70);
     auto *hdrLayout = new QHBoxLayout(header);
     hdrLayout->setContentsMargins(28, 0, 28, 0);
     auto *titleLabel = new QLabel("Settings");
-    titleLabel->setStyleSheet("font-size:18px; font-weight:700; color:#111827;");
+    titleLabel->setStyleSheet("font-size:18px; font-weight:700;");
     auto *subLabel = new QLabel("Configure server and API connection");
-    subLabel->setStyleSheet("font-size:12px; color:#6B7280;");
+    subLabel->setStyleSheet("font-size:12px; color:palette(mid);");
     auto *titleBlock = new QVBoxLayout();
     titleBlock->setSpacing(2);
     titleBlock->addWidget(titleLabel);
@@ -68,18 +48,17 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     }
 
     auto *ipBanner = new QWidget();
-    ipBanner->setStyleSheet(
-        "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #8222E3,stop:1 #A855F7);"
-        "border-radius:12px;");
+    ipBanner->setObjectName("ipBanner");
     ipBanner->setFixedHeight(64);
     auto *ipLayout = new QHBoxLayout(ipBanner);
     ipLayout->setContentsMargins(20, 0, 20, 0);
-    auto *ipIcon = new QLabel("🖥");
-    ipIcon->setStyleSheet("font-size:22px;");
+    auto *ipIcon = new QLabel();
+    ipIcon->setObjectName("ipIcon");
+    ipIcon->setPixmap(Icons::pixmap(Icons::Glyph::Monitor, Theme::current().accent, 24, devicePixelRatioF()));
     auto *ipTitle = new QLabel("This Machine's IP");
-    ipTitle->setStyleSheet("color:rgba(255,255,255,0.75); font-size:11px;");
+    ipTitle->setObjectName("ipTitle");
     auto *ipVal = new QLabel(localIps.isEmpty() ? "No network" : localIps.join("   "));
-    ipVal->setStyleSheet("color:#FFFFFF; font-size:16px; font-weight:700;");
+    ipVal->setObjectName("ipVal");
     auto *ipTextCol = new QVBoxLayout();
     ipTextCol->setSpacing(2);
     ipTextCol->addWidget(ipTitle);
@@ -89,27 +68,21 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     ipLayout->addLayout(ipTextCol);
     ipLayout->addStretch();
     auto *ipHint = new QLabel("← Configure this IP on your ZKTeco devices");
-    ipHint->setStyleSheet("color:rgba(255,255,255,0.65); font-size:11px;");
+    ipHint->setObjectName("ipHint");
     ipLayout->addWidget(ipHint);
 
     // ── BioSync Server control card ───────────────────────────────────────────
     m_serverStatusLabel = new QLabel("○ Unknown");
-    m_serverStatusLabel->setStyleSheet("font-size:13px; font-weight:600; color:#6B7280;");
 
-    m_btnStart = new QPushButton("▶  Start");
-    m_btnStop  = new QPushButton("⏹  Stop");
-    m_btnRestart = new QPushButton("↺  Restart");
-
-    auto serverBtnStyle = [](const QString &bg, const QString &hover) {
-        return QString("QPushButton { background:%1; color:#FFFFFF; border:none;"
-                       "  padding:7px 16px; border-radius:8px; font-weight:600; font-size:12px; }"
-                       "QPushButton:hover { background:%2; }"
-                       "QPushButton:pressed { background:%2; }"
-                       "QPushButton:disabled { background:#D1D5DB; }").arg(bg, hover);
-    };
-    m_btnStart->setStyleSheet(serverBtnStyle("#10B981", "#059669"));
-    m_btnStop->setStyleSheet(serverBtnStyle("#EF4444", "#DC2626"));
-    m_btnRestart->setStyleSheet(serverBtnStyle("#8222E3", "#6A1AB8"));
+    m_btnStart   = new QPushButton(" Start");
+    m_btnStop    = new QPushButton(" Stop");
+    m_btnRestart = new QPushButton(" Restart");
+    m_btnStart->setObjectName("btnStart");
+    m_btnStop->setObjectName("btnStop");
+    m_btnRestart->setObjectName("btnRestart");
+    m_btnStart->setIcon(Icons::icon(Icons::Glyph::Play, Qt::white, 13, devicePixelRatioF()));
+    m_btnStop->setIcon(Icons::icon(Icons::Glyph::Pause, Qt::white, 13, devicePixelRatioF()));
+    m_btnRestart->setIcon(Icons::icon(Icons::Glyph::Restart, Qt::white, 13, devicePixelRatioF()));
     m_btnStart->setCursor(Qt::PointingHandCursor);
     m_btnStop->setCursor(Qt::PointingHandCursor);
     m_btnRestart->setCursor(Qt::PointingHandCursor);
@@ -122,7 +95,6 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     serverBtnRow->addStretch();
 
     auto *serverControlGroup = new QGroupBox("BioSync Server");
-    serverControlGroup->setStyleSheet(cardStyle());
     auto *serverControlLayout = new QVBoxLayout(serverControlGroup);
     serverControlLayout->setContentsMargins(8, 16, 8, 8);
     serverControlLayout->setSpacing(12);
@@ -142,11 +114,6 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
 
     m_autoStart = new QCheckBox("  Start BioSync automatically when Windows starts");
     m_autoStart->setCursor(Qt::PointingHandCursor);
-    m_autoStart->setStyleSheet(
-        "QCheckBox { font-size:13px; color:#111827; spacing:8px; }"
-        "QCheckBox::indicator { width:18px; height:18px; border:1.5px solid #D1D5DB; border-radius:5px; background:#FFFFFF; }"
-        "QCheckBox::indicator:checked { background:#8222E3; border-color:#8222E3;"
-        "}");
     serverControlLayout->addWidget(m_autoStart);
     serverControlLayout->addWidget(hint("So the attendance server is running whenever this computer is on, even after a reboot."));
 
@@ -154,10 +121,9 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     m_serverPort = new QSpinBox();
     m_serverPort->setRange(1, 65535);
     m_serverPort->setValue(8085);
-    m_serverPort->setStyleSheet(inputStyle() + "QSpinBox { max-width:120px; }");
+    m_serverPort->setMaximumWidth(120);
 
     auto *serverGroup = new QGroupBox("ADMS Server");
-    serverGroup->setStyleSheet(cardStyle());
     auto *serverForm = new QFormLayout(serverGroup);
     serverForm->setLabelAlignment(Qt::AlignRight);
     serverForm->setSpacing(14);
@@ -177,11 +143,7 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     m_institutionId->setPlaceholderText("e.g. 1");
     m_institutionId->setClearButtonEnabled(true);
 
-    for (auto *le : {m_apiUrl, m_apiKey, m_institutionId})
-        le->setStyleSheet(inputStyle());
-
     auto *apiGroup = new QGroupBox("RiTEMS Connection");
-    apiGroup->setStyleSheet(cardStyle());
     auto *apiForm = new QFormLayout(apiGroup);
     apiForm->setLabelAlignment(Qt::AlignRight);
     apiForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
@@ -197,13 +159,9 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     apiForm->addRow("", hint("The numeric ID of the institution these devices belong to in RiTEMS."));
 
     // ── Save button ───────────────────────────────────────────────────────────
-    auto *btnSave = new QPushButton("  Save Settings");
+    auto *btnSave = new QPushButton(" Save Settings");
+    btnSave->setProperty("accent", true);
     btnSave->setFixedHeight(44);
-    btnSave->setStyleSheet(
-        "QPushButton { background:#8222E3; color:#FFFFFF; border:none;"
-        "  padding:0 28px; border-radius:10px; font-size:13px; font-weight:700; }"
-        "QPushButton:hover   { background:#6A1AB8; }"
-        "QPushButton:pressed { background:#5a14a0; }");
     btnSave->setCursor(Qt::PointingHandCursor);
     connect(btnSave, &QPushButton::clicked, this, &SettingsPage::onSave);
 
@@ -235,16 +193,16 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     bodyRow->addStretch();
 
     auto *bodyWidget = new QWidget();
-    bodyWidget->setStyleSheet("background:transparent;");
+    bodyWidget->setObjectName("settingsBody");
     bodyWidget->setLayout(bodyRow);
 
     // …inside a scroll area, so every field is reachable on any window size (this was the
     // reason the API fields could not be clicked/typed on shorter windows).
     auto *scroll = new QScrollArea();
+    scroll->setObjectName("settingsScroll");
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
     scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scroll->setStyleSheet("QScrollArea{background:#F4F6FB;border:none;}");
     scroll->setWidget(bodyWidget);
 
     auto *root = new QVBoxLayout(this);
@@ -253,19 +211,63 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     root->addWidget(header);
     root->addWidget(scroll, 1);
 
+    applyTheme();
+    connect(&Theme::instance(), &Theme::changed, this, &SettingsPage::applyTheme);
+
     loadSettings();
 }
 
+void SettingsPage::applyTheme() {
+    const ThemePalette &t = Theme::current();
+    setStyleSheet(QString("background:%1;").arg(t.pageBg.name()));
+    findChild<QWidget*>("settingsHeader")->setStyleSheet(
+        QString("#settingsHeader{background:%1; border-bottom:1.5px solid %2;}")
+            .arg(t.headerBg.name(), t.border.name()));
+    findChild<QWidget*>("settingsBody")->setStyleSheet("background:transparent;");
+    findChild<QWidget*>("settingsScroll")->setStyleSheet(
+        QString("QScrollArea{background:%1;border:none;}").arg(t.pageBg.name()));
+
+    // Soft accent wash, matching ritems' InfoBanner.tsx convention, rather than a solid gradient.
+    findChild<QWidget*>("ipBanner")->setStyleSheet(QString(
+        "#ipBanner{background: %1; border-radius:12px;}").arg(t.accentSoft()));
+    findChild<QLabel*>("ipTitle")->setStyleSheet(
+        QString("color:%1; font-size:11px;").arg(t.textSecondary.name()));
+    findChild<QLabel*>("ipVal")->setStyleSheet(
+        QString("color:%1; font-size:16px; font-weight:700;").arg(t.accent.name()));
+    findChild<QLabel*>("ipHint")->setStyleSheet(
+        QString("color:%1; font-size:11px;").arg(t.textSecondary.name()));
+    if (auto *ipIcon = findChild<QLabel*>("ipIcon"))
+        ipIcon->setPixmap(Icons::pixmap(Icons::Glyph::Monitor, t.accent, 24, devicePixelRatioF()));
+
+    auto serverBtnStyle = [](const QColor &bg, const QColor &hover, const QColor &disabled) {
+        return QString("QPushButton { background:%1; color:#FFFFFF; border:none;"
+                       "  padding:8px 16px; border-radius:12px; font-weight:600; font-size:12px; }"
+                       "QPushButton:hover { background:%2; }"
+                       "QPushButton:pressed { background:%2; }"
+                       "QPushButton:disabled { background:%3; }")
+            .arg(bg.name(), hover.name(), disabled.name());
+    };
+    findChild<QPushButton*>("btnStart")->setStyleSheet(
+        serverBtnStyle(t.success, t.success.darker(115), t.border));
+    findChild<QPushButton*>("btnStop")->setStyleSheet(
+        serverBtnStyle(t.danger, t.danger.darker(115), t.border));
+    findChild<QPushButton*>("btnRestart")->setStyleSheet(
+        serverBtnStyle(t.accent, t.accentHover, t.border));
+
+    updateServerStatus(m_btnStop->isEnabled(), 0); // re-derive color only; text/port unaffected here
+}
+
 void SettingsPage::updateServerStatus(bool running, quint16 port) {
+    const ThemePalette &t = Theme::current();
     if (running) {
-        m_serverStatusLabel->setText(QString("● Running on port %1").arg(port));
-        m_serverStatusLabel->setStyleSheet("font-size:13px; font-weight:600; color:#10B981;");
+        if (port) m_serverStatusLabel->setText(QString("● Running on port %1").arg(port));
+        m_serverStatusLabel->setStyleSheet(QString("font-size:13px; font-weight:600; color:%1;").arg(t.success.name()));
         m_btnStart->setEnabled(false);
         m_btnStop->setEnabled(true);
         m_btnRestart->setEnabled(true);
     } else {
         m_serverStatusLabel->setText("○ Stopped");
-        m_serverStatusLabel->setStyleSheet("font-size:13px; font-weight:600; color:#EF4444;");
+        m_serverStatusLabel->setStyleSheet(QString("font-size:13px; font-weight:600; color:%1;").arg(t.danger.name()));
         m_btnStart->setEnabled(true);
         m_btnStop->setEnabled(false);
         m_btnRestart->setEnabled(false);
@@ -273,23 +275,24 @@ void SettingsPage::updateServerStatus(bool running, quint16 port) {
 }
 
 void SettingsPage::flashServerAction(const QString &message, bool ok) {
+    const ThemePalette &t = Theme::current();
     m_actionToast->setText((ok ? "✓  " : "⚠  ") + message);
     m_actionToast->setStyleSheet(QString("font-size:12px; font-weight:600; padding:2px 0; color:%1;")
-                                     .arg(ok ? "#10B981" : "#EF4444"));
+                                     .arg((ok ? t.success : t.danger).name()));
     m_actionToast->setVisible(true);
     QTimer::singleShot(5000, m_actionToast, [this]() { m_actionToast->setVisible(false); });
 }
 
 QLabel *SettingsPage::styledLabel(const QString &text) {
     auto *lbl = new QLabel(text + ":");
-    lbl->setStyleSheet("font-size:13px; color:#374151; font-weight:500;");
+    lbl->setStyleSheet("font-size:13px; font-weight:500;");
     return lbl;
 }
 
 QLabel *SettingsPage::hint(const QString &text) {
     auto *lbl = new QLabel(text);
     lbl->setWordWrap(true);
-    lbl->setStyleSheet("font-size:11px; color:#9CA3AF;");
+    lbl->setStyleSheet("font-size:11px; color:palette(mid);");
     return lbl;
 }
 
@@ -318,11 +321,6 @@ void SettingsPage::onSave() {
     mb.setText("Settings saved successfully.");
     mb.setInformativeText("Use Restart in the Server card to apply port changes immediately.");
     mb.setIcon(QMessageBox::Information);
-    mb.setStyleSheet(
-        "QMessageBox { background:#FFFFFF; }"
-        "QMessageBox QPushButton { background:#8222E3; color:#FFFFFF; border-radius:8px;"
-        "  padding:6px 20px; font-weight:600; }"
-        "QMessageBox QPushButton:hover { background:#6A1AB8; }");
     mb.exec();
 
     emit settingsSaved();

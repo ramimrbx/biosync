@@ -54,6 +54,27 @@ Name: "startupicon"; Description: "Start BioSync automatically when Windows star
 ; exclude the CMake/Ninja build artifacts that live alongside it in the build dir.
 Source: "{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "CMakeFiles,BioSync_autogen,.qt,CMakeCache.txt,cmake_install.cmake,*.ninja,.ninja_deps,.ninja_log,*.cbp,*.a,*.o"
 
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  // Fires right before files are copied. A previous install may still be running — the
+  // interactive GUI (left running in the tray, since closing the window doesn't quit it) and/or
+  // the headless boot task (running as SYSTEM) — and either one holds both the ADMS port and a
+  // lock on BioSync.exe. Left running, the OLD process keeps the port after this install finishes,
+  // so the NEW version's own server fails to bind it ("address already in use") the moment it
+  // launches. Stopping both here — before copying files — releases the port and the file lock,
+  // so downloading and running this installer directly (not just updating via the in-app
+  // updater, which already stops itself first) upgrades cleanly.
+  if CurStep = ssInstall then
+  begin
+    Exec(ExpandConstant('{sys}\schtasks.exe'), '/End /TN "BioSync"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM BioSync.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(500);
+  end;
+end;
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
@@ -83,4 +104,4 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 ; Stop + remove the headless boot task, then drop the firewall rule.
 Filename: "{sys}\schtasks.exe"; Parameters: "/End /TN ""BioSync"""; Flags: runhidden; RunOnceId: "StopTask"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""BioSync"" /F"; Flags: runhidden; RunOnceId: "DelTask"
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BioSync"""; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""BioSync"""; Flags: runhidden; RunOnceId: "DelFirewallRule"

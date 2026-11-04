@@ -11,7 +11,7 @@
 
 set(APP_NAME       "BioSync")
 set(APP_PUBLISHER  "Right iTech")
-set(APP_VERSION    "1.2.0")
+set(APP_VERSION    "1.3.2")
 set(APP_URL        "https://ritems.io")
 set(SUPPORT_EMAIL  "info@ritems.io")
 set(SUPPORT_PHONE  "+880 1XXX-XXXXXX")

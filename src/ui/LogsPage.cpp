@@ -1,4 +1,6 @@
 #include "LogsPage.h"
+#include "Theme.h"
+#include "Icons.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -10,19 +12,17 @@
 LogsPage::LogsPage(Database *db, QWidget *parent)
     : QWidget(parent), m_db(db)
 {
-    setStyleSheet("background:#F4F6FB;");
-
     // ── Header ────────────────────────────────────────────────────────────────
     auto *header = new QWidget();
-    header->setStyleSheet("background:#FFFFFF; border-bottom:1.5px solid #E5E7EB;");
+    header->setObjectName("logsHeader");
     header->setFixedHeight(70);
     auto *hdrLayout = new QHBoxLayout(header);
     hdrLayout->setContentsMargins(28, 0, 28, 0);
 
     auto *titleLabel = new QLabel("Device Logs");
-    titleLabel->setStyleSheet("font-size:18px; font-weight:700; color:#111827;");
+    titleLabel->setStyleSheet("font-size:18px; font-weight:700;");
     auto *subLabel = new QLabel("Real-time communication log");
-    subLabel->setStyleSheet("font-size:12px; color:#6B7280;");
+    subLabel->setStyleSheet("font-size:12px; color:palette(mid);");
     auto *titleBlock = new QVBoxLayout();
     titleBlock->setSpacing(2);
     titleBlock->addWidget(titleLabel);
@@ -30,22 +30,10 @@ LogsPage::LogsPage(Database *db, QWidget *parent)
 
     m_deviceFilter = new QComboBox();
     m_deviceFilter->addItem("All Devices", "");
-    m_deviceFilter->setStyleSheet(
-        "QComboBox { background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:8px;"
-        "  padding:6px 12px; font-size:12px; color:#374151; min-width:160px; }"
-        "QComboBox:hover { border-color:#8222E3; }"
-        "QComboBox::drop-down { border:none; padding-right:8px; }"
-        "QComboBox QAbstractItemView { border:1.5px solid #E5E7EB; border-radius:8px;"
-        "  background:#FFFFFF; selection-background-color:#F5EEFF; }");
 
-    auto *btnRefresh = new QPushButton("↻  Refresh");
+    auto *btnRefresh = new QPushButton(" Refresh");
     auto *btnClear   = new QPushButton("Clear");
-    QString btnCss =
-        "QPushButton { background:#FFFFFF; color:#374151; border:1.5px solid #E5E7EB;"
-        "  padding:7px 14px; border-radius:8px; font-weight:500; font-size:12px; }"
-        "QPushButton:hover { background:#F9F5FF; border-color:#8222E3; color:#8222E3; }";
-    btnRefresh->setStyleSheet(btnCss);
-    btnClear->setStyleSheet(btnCss);
+    btnRefresh->setIcon(Icons::icon(Icons::Glyph::Refresh, Theme::current().textPrimary, 14, devicePixelRatioF()));
     btnRefresh->setCursor(Qt::PointingHandCursor);
     btnClear->setCursor(Qt::PointingHandCursor);
 
@@ -109,7 +97,19 @@ LogsPage::LogsPage(Database *db, QWidget *parent)
     connect(btnRefresh,     &QPushButton::clicked,           this, &LogsPage::loadLogs);
     connect(btnClear,       &QPushButton::clicked,           m_logView, &QPlainTextEdit::clear);
 
+    applyTheme();
+    connect(&Theme::instance(), &Theme::changed, this, &LogsPage::applyTheme);
+
     loadLogs();
+}
+
+void LogsPage::applyTheme() {
+    const ThemePalette &t = Theme::current();
+    setStyleSheet(QString("background:%1;").arg(t.pageBg.name()));
+    findChild<QWidget*>("logsHeader")->setStyleSheet(
+        QString("#logsHeader{background:%1; border-bottom:1.5px solid %2;}")
+            .arg(t.headerBg.name(), t.border.name()));
+    // The log viewer keeps its own permanently-dark "terminal" look regardless of app theme.
 }
 
 void LogsPage::appendLog(const QString &deviceSerial, const QString &message) {

@@ -1,4 +1,5 @@
 #include "BiometricBackupDialog.h"
+#include "ui/Theme.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -13,19 +14,20 @@
 // ── Helpers ───────────────────────────────────────────────────────────────────
 static QLabel *makeValueLabel(const QString &text = "—") {
     auto *lbl = new QLabel(text);
-    lbl->setStyleSheet("font-size:13px; color:#111827; font-weight:600;");
+    lbl->setStyleSheet(QString("font-size:13px; color:%1; font-weight:600;")
+                            .arg(Theme::current().textPrimary.name()));
     return lbl;
 }
 static QLabel *makeCaptionLabel(const QString &text) {
     auto *lbl = new QLabel(text);
-    lbl->setStyleSheet("font-size:12px; color:#6B7280;");
+    lbl->setStyleSheet(QString("font-size:12px; color:%1;").arg(Theme::current().textSecondary.name()));
     lbl->setFixedWidth(180);
     return lbl;
 }
 static QFrame *makeDivider() {
     auto *f = new QFrame();
     f->setFrameShape(QFrame::HLine);
-    f->setStyleSheet("color:#F3F4F6;");
+    f->setStyleSheet(QString("color:%1;").arg(Theme::current().border.name()));
     return f;
 }
 
@@ -50,22 +52,24 @@ BiometricBackupDialog::BiometricBackupDialog(const QString &serial,
     connect(m_statsTimer, &QTimer::timeout, this, &BiometricBackupDialog::onStatsTimer);
 
     buildUi();
-    setStatus("Waiting for device to respond…", "#F59E0B");
+    setStatus("Waiting for device to respond…", Theme::current().warning.name());
     m_progressBar->setMaximum(0);   // indeterminate pulse while waiting for device
     m_statsTimer->start();
 }
 
 void BiometricBackupDialog::buildUi() {
+    const ThemePalette &t = Theme::current();
     setWindowTitle("Biometric Template Backup");
     setWindowFlags(windowFlags() & ~Qt::WindowContextHelpButtonHint);
     setFixedWidth(520);
-    setStyleSheet("background:#FFFFFF;");
+    setStyleSheet(QString("background:%1;").arg(t.pageBg.name()));
 
-    // ── Header banner ─────────────────────────────────────────────────────────
+    // ── Header ───────────────────────────────────────────────────────────────
+    // Mirrors ritems' Modal.tsx "default" header: a soft accent wash with an accent-colored
+    // title, not a solid brand-color banner.
     auto *banner = new QWidget();
-    banner->setStyleSheet(
-        "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #8222E3,stop:1 #A855F7);"
-        "border-radius:10px;");
+    banner->setAttribute(Qt::WA_StyledBackground, true);
+    banner->setStyleSheet(QString("background:%1; border-radius:16px;").arg(t.accentSoft()));
     banner->setFixedHeight(72);
     auto *bannerLayout = new QHBoxLayout(banner);
     bannerLayout->setContentsMargins(20, 0, 20, 0);
@@ -75,11 +79,11 @@ void BiometricBackupDialog::buildUi() {
 
     auto *titleCol = new QVBoxLayout();
     auto *bannerTitle = new QLabel("Biometric Template Backup");
-    bannerTitle->setStyleSheet("color:#FFFFFF; font-size:14px; font-weight:700;");
+    bannerTitle->setStyleSheet(QString("color:%1; font-size:14px; font-weight:700;").arg(t.accent.name()));
 
     m_lblDeviceInfo = new QLabel(
         QString("%1  ·  SN: %2").arg(m_deviceName.isEmpty() ? "Unknown" : m_deviceName, m_serial));
-    m_lblDeviceInfo->setStyleSheet("color:rgba(255,255,255,0.75); font-size:11px;");
+    m_lblDeviceInfo->setStyleSheet(QString("color:%1; font-size:11px;").arg(t.textSecondary.name()));
     titleCol->setSpacing(2);
     titleCol->addWidget(bannerTitle);
     titleCol->addWidget(m_lblDeviceInfo);
@@ -91,7 +95,7 @@ void BiometricBackupDialog::buildUi() {
 
     // ── Status label ──────────────────────────────────────────────────────────
     m_lblStatus = new QLabel("Initialising…");
-    m_lblStatus->setStyleSheet("font-size:12px; color:#374151;");
+    m_lblStatus->setStyleSheet(QString("font-size:12px; color:%1;").arg(t.textSecondary.name()));
     m_lblStatus->setAlignment(Qt::AlignCenter);
 
     // ── Progress bar ──────────────────────────────────────────────────────────
@@ -101,19 +105,21 @@ void BiometricBackupDialog::buildUi() {
     m_progressBar->setValue(0);
     m_progressBar->setTextVisible(false);
     m_progressBar->setFixedHeight(10);
-    m_progressBar->setStyleSheet(
+    m_progressBar->setStyleSheet(QString(
         "QProgressBar {"
-        "  border:none; border-radius:5px; background:#F3F4F6;"
+        "  border:none; border-radius:5px; background:%1;"
         "}"
         "QProgressBar::chunk {"
         "  border-radius:5px;"
-        "  background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #8222E3,stop:1 #A855F7);"
-        "}");
+        "  background:%2;"
+        "}").arg(t.border.name(), t.accent.name()));
 
     // ── Stats grid ────────────────────────────────────────────────────────────
     auto *statsWidget = new QWidget();
-    statsWidget->setStyleSheet(
-        "background:#F9FAFB; border-radius:10px; border:1.5px solid #E5E7EB;");
+    statsWidget->setAttribute(Qt::WA_StyledBackground, true);
+    statsWidget->setStyleSheet(QString(
+        "background:%1; border-radius:12px; border:1.5px solid %2;")
+        .arg(t.headerBg.name(), t.border.name()));
     auto *grid = new QGridLayout(statsWidget);
     grid->setContentsMargins(20, 16, 20, 16);
     grid->setHorizontalSpacing(12);
@@ -148,12 +154,14 @@ void BiometricBackupDialog::buildUi() {
     // ── Close button ──────────────────────────────────────────────────────────
     m_btnClose = new QPushButton("Close");
     m_btnClose->setFixedHeight(40);
-    m_btnClose->setStyleSheet(
-        "QPushButton { background:#8222E3; color:#FFFFFF; border:none;"
-        "  padding:0 28px; border-radius:8px; font-size:13px; font-weight:600; }"
-        "QPushButton:hover   { background:#6A1AB8; }"
-        "QPushButton:pressed { background:#5a14a0; }"
-        "QPushButton:disabled { background:#D1D5DB; color:#9CA3AF; }");
+    m_btnClose->setStyleSheet(QString(
+        "QPushButton { background:%1; color:%2; border:none;"
+        "  padding:0 28px; border-radius:12px; font-size:13px; font-weight:600; }"
+        "QPushButton:hover   { background:%3; }"
+        "QPushButton:pressed { background:%4; }"
+        "QPushButton:disabled { background:%5; color:%6; }")
+        .arg(t.accent.name(), t.onAccent.name(), t.accentHover.name(), t.accentPressed.name(),
+             t.border.name(), t.textDisabled.name()));
     m_btnClose->setEnabled(false);
     m_btnClose->setCursor(Qt::PointingHandCursor);
     connect(m_btnClose, &QPushButton::clicked, this, &QDialog::accept);
@@ -184,14 +192,15 @@ void BiometricBackupDialog::startUpload(const QList<BiometricTemplate> &template
     m_progressBar->setMaximum(m_total > 0 ? m_total : 1);
     m_progressBar->setValue(0);
 
+    const ThemePalette &t = Theme::current();
     if (m_total == 0) {
-        setStatus("No templates found on device.", "#EF4444");
+        setStatus("No templates found on device.", t.danger.name());
         finishUpload(false);
         return;
     }
 
     setStatus(QString("Received %1 template(s) from device — uploading to server…").arg(m_total),
-              "#8222E3");
+              t.accent.name());
     doUpload();
 }
 
@@ -261,19 +270,20 @@ void BiometricBackupDialog::finishUpload(bool success) {
     m_lblElapsed->setText(formatDuration(elapsed));
     m_lblEta->setText("—");
 
+    const ThemePalette &t = Theme::current();
     if (success) {
         m_progressBar->setMaximum(m_total > 0 ? m_total : 1);
         m_progressBar->setValue(m_total > 0 ? m_total : 1);
         setStatus(QString("✓  Backup complete — %1 template(s) uploaded successfully.").arg(m_total),
-                  "#10B981");
-        m_progressBar->setStyleSheet(
-            "QProgressBar { border:none; border-radius:5px; background:#F3F4F6; }"
-            "QProgressBar::chunk { border-radius:5px; background:#10B981; }");
+                  t.success.name());
+        m_progressBar->setStyleSheet(QString(
+            "QProgressBar { border:none; border-radius:5px; background:%1; }"
+            "QProgressBar::chunk { border-radius:5px; background:%2; }").arg(t.border.name(), t.success.name()));
     } else {
-        setStatus("✕  Upload failed. Check API connection and try again.", "#EF4444");
-        m_progressBar->setStyleSheet(
-            "QProgressBar { border:none; border-radius:5px; background:#F3F4F6; }"
-            "QProgressBar::chunk { border-radius:5px; background:#EF4444; }");
+        setStatus("✕  Upload failed. Check API connection and try again.", t.danger.name());
+        m_progressBar->setStyleSheet(QString(
+            "QProgressBar { border:none; border-radius:5px; background:%1; }"
+            "QProgressBar::chunk { border-radius:5px; background:%2; }").arg(t.border.name(), t.danger.name()));
     }
 
     m_btnClose->setEnabled(true);

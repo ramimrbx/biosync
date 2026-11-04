@@ -2,6 +2,8 @@
 #include "AppPaths.h"
 #include "Version.h"
 #include "ui/DeviceDiscoveryDialog.h"
+#include "ui/Theme.h"
+#include "ui/Icons.h"
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
@@ -29,63 +31,64 @@
 #include <QSet>
 #include <QMessageBox>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPropertyAnimation>
 #include <QButtonGroup>
 #include <QAbstractButton>
 
-// ── Colour constants ──────────────────────────────────────────────────────────
-static const QString C_BRAND       = "#8222E3";
-static const QString C_BRAND_DARK  = "#6A1AB8";
-static const QString C_SIDEBAR_BG  = "#120629";
-static const QString C_SIDEBAR_SEL = "#8222E3";
-static const QString C_SIDEBAR_HOV = "#1E0A40";
-static const QString C_PAGE_BG     = "#F4F6FB";
-
 // ── NavButton: custom sidebar item ────────────────────────────────────────────
+// Mirrors ritems/client/web's Sidebar NavItem: a rounded pill (mx-2, rounded-lg) that gets an
+// even hover/active background (bg-gray-100 / slate-800), with the accent color reserved for the
+// active row's icon+label and a short rounded bar pinned to the sidebar's left edge — rather than
+// the old Fluent-style full-bleed accent fill.
 class NavButton : public QAbstractButton {
 public:
-    NavButton(const QString &icon, const QString &label, QWidget *parent = nullptr)
-        : QAbstractButton(parent), m_icon(icon), m_label(label)
+    NavButton(Icons::Glyph glyph, const QString &label, QWidget *parent = nullptr)
+        : QAbstractButton(parent), m_glyph(glyph), m_label(label)
     {
         setCheckable(true);
         setCursor(Qt::PointingHandCursor);
-        setFixedHeight(52);
+        setFixedHeight(44);
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
 protected:
     void paintEvent(QPaintEvent *) override {
+        const ThemePalette &t = Theme::current();
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
 
-        QColor bg = isChecked()  ? QColor(C_BRAND_DARK)
-                  : underMouse() ? QColor(C_SIDEBAR_HOV)
-                                 : Qt::transparent;
-        if (bg.alpha() > 0) {
-            p.fillRect(rect(), bg);
-        }
-        if (isChecked()) {
-            p.fillRect(0, 0, 4, height(), QColor(C_BRAND));
+        const bool active = isChecked();
+        const bool hovered = underMouse();
+
+        if (active) {
+            const int barH = 24;
+            p.fillRect(QRect(0, (height() - barH) / 2, 3, barH), t.accent);
         }
 
-        QColor textColor = isChecked() ? QColor("#FFFFFF")
-                         : QColor("#B0A8C8");
-        p.setPen(textColor);
+        const QRect pill = rect().adjusted(8, 3, -8, -3);
+        if (active || hovered) {
+            QPainterPath path;
+            path.addRoundedRect(pill, 8, 8);
+            p.fillPath(path, t.sidebarHover);
+        }
 
-        QFont iconFont = font();
-        iconFont.setPointSize(15);
-        p.setFont(iconFont);
-        p.drawText(QRect(18, 0, 28, height()), Qt::AlignVCenter | Qt::AlignLeft, m_icon);
+        const QColor fg = active ? t.accent : hovered ? t.sidebarText : t.sidebarTextMuted;
+        const QPixmap icon = Icons::pixmap(m_glyph, fg, 18, devicePixelRatioF());
+        p.drawPixmap(QRect(pill.left() + 12, (height() - 18) / 2, 18, 18), icon);
 
+        p.setPen(active ? t.accent : t.sidebarText);
         QFont labelFont = font();
         labelFont.setPointSize(10);
-        if (isChecked()) labelFont.setWeight(QFont::DemiBold);
+        if (active) labelFont.setWeight(QFont::DemiBold);
         p.setFont(labelFont);
-        p.drawText(QRect(52, 0, width() - 52, height()), Qt::AlignVCenter | Qt::AlignLeft, m_label);
+        p.drawText(QRect(pill.left() + 44, 0, pill.width() - 44, height()),
+                   Qt::AlignVCenter | Qt::AlignLeft, m_label);
     }
     void enterEvent(QEnterEvent *e) override { update(); QAbstractButton::enterEvent(e); }
     void leaveEvent(QEvent *e)       override { update(); QAbstractButton::leaveEvent(e); }
 private:
-    QString m_icon, m_label;
+    Icons::Glyph m_glyph;
+    QString m_label;
 };
 
 // ── MainWindow ─────────────────────────────────────────────────────────────────
@@ -101,6 +104,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setupTray();
     startServer();
     reloadApiConfig();
+    connect(&Theme::instance(), &Theme::changed, this, &MainWindow::applyTheme);
 
     // Auto-check for a newer version shortly after launch (silent when already up to date),
     // then once a day while the app stays open.
@@ -119,41 +123,38 @@ void MainWindow::setupUi() {
     resize(1280, 780);
 
     // ── Sidebar ──────────────────────────────────────────────────────────────
-    auto *sidebar = new QWidget();
-    sidebar->setFixedWidth(200);
-    sidebar->setStyleSheet(QString("background:%1;").arg(C_SIDEBAR_BG));
+    // Layout mirrors ritems/client/web's Sidebar.tsx: a fixed-width rail with a bordered logo
+    // lockup at top (icon mark + wordmark, "Sync" in the accent color like ritems' "EMS"), nav
+    // items below, and a bordered bottom bar (there: collapse toggle; here: version/About).
+    m_sidebar = new QWidget();
+    m_sidebar->setAttribute(Qt::WA_StyledBackground, true);
+    m_sidebar->setFixedWidth(240);
 
     // Logo area
-    auto *logoArea = new QWidget();
-    logoArea->setFixedHeight(72);
-    logoArea->setStyleSheet(QString(
-        "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-        "stop:0 %1, stop:1 %2);").arg(C_BRAND, C_BRAND_DARK));
+    m_logoArea = new QWidget();
+    m_logoArea->setAttribute(Qt::WA_StyledBackground, true);
+    m_logoArea->setFixedHeight(56);
 
-    auto *logoTitle = new QLabel(BioSync::appName());
-    logoTitle->setAlignment(Qt::AlignCenter);
-    logoTitle->setStyleSheet("color:#FFFFFF; font-size:22px; font-weight:700; letter-spacing:1px;");
-    auto *logoSub = new QLabel("Attendance Manager");
-    logoSub->setAlignment(Qt::AlignCenter);
-    logoSub->setStyleSheet("color:rgba(255,255,255,0.65); font-size:10px;");
+    m_logoMark = new QLabel("B");
+    m_logoMark->setAttribute(Qt::WA_StyledBackground, true);
+    m_logoMark->setFixedSize(32, 32);
+    m_logoMark->setAlignment(Qt::AlignCenter);
 
-    auto *logoLayout = new QVBoxLayout(logoArea);
-    logoLayout->setContentsMargins(0, 10, 0, 8);
-    logoLayout->setSpacing(2);
-    logoLayout->addWidget(logoTitle);
-    logoLayout->addWidget(logoSub);
+    m_logoTitle = new QLabel();
+    m_logoTitle->setTextFormat(Qt::RichText);
+
+    auto *logoLayout = new QHBoxLayout(m_logoArea);
+    logoLayout->setContentsMargins(20, 0, 20, 0);
+    logoLayout->setSpacing(10);
+    logoLayout->addWidget(m_logoMark);
+    logoLayout->addWidget(m_logoTitle);
+    logoLayout->addStretch();
 
     // Nav buttons
-    m_navBtns[0] = new NavButton("󰌢", "Devices",    sidebar);
-    m_navBtns[1] = new NavButton("󰃰", "Attendance", sidebar);
-    m_navBtns[2] = new NavButton("󰍡", "Logs",       sidebar);
-    m_navBtns[3] = new NavButton("󰒓", "Settings",   sidebar);
-
-    // Use plain-text icons since we can't guarantee icon fonts
-    m_navBtns[0] = new NavButton("⬡", "Devices",    sidebar);
-    m_navBtns[1] = new NavButton("☑", "Attendance", sidebar);
-    m_navBtns[2] = new NavButton("≡", "Logs",       sidebar);
-    m_navBtns[3] = new NavButton("⚙", "Settings",   sidebar);
+    m_navBtns[0] = new NavButton(Icons::Glyph::Devices,    "Devices",    m_sidebar);
+    m_navBtns[1] = new NavButton(Icons::Glyph::Attendance, "Attendance", m_sidebar);
+    m_navBtns[2] = new NavButton(Icons::Glyph::Logs,       "Logs",       m_sidebar);
+    m_navBtns[3] = new NavButton(Icons::Glyph::Settings,   "Settings",   m_sidebar);
 
     m_navBtns[0]->setChecked(true);
 
@@ -163,34 +164,29 @@ void MainWindow::setupUi() {
     }
     connect(navGroup, &QButtonGroup::idClicked, this, &MainWindow::onNavItemChanged);
 
-    // Divider
-    auto *navDivider = new QFrame();
-    navDivider->setFrameShape(QFrame::HLine);
-    navDivider->setStyleSheet("color: rgba(255,255,255,0.08);");
+    // Version button at bottom of sidebar — real build version, opens the About panel. Styled
+    // like ritems' bottom-of-sidebar "Collapse Sidebar" bar: fixed height, top border, muted
+    // text that picks up the accent color on hover.
+    m_versionBtn = new QPushButton(QString("v%1 · About").arg(BioSync::version()));
+    m_versionBtn->setCursor(Qt::PointingHandCursor);
+    m_versionBtn->setFlat(true);
+    m_versionBtn->setFixedHeight(52);
+    connect(m_versionBtn, &QPushButton::clicked, this, &MainWindow::onShowAbout);
 
-    // Version button at bottom of sidebar — real build version, opens the About panel.
-    auto *versionBtn = new QPushButton(QString("v%1 · About").arg(BioSync::version()));
-    versionBtn->setCursor(Qt::PointingHandCursor);
-    versionBtn->setFlat(true);
-    versionBtn->setStyleSheet(
-        "QPushButton{color:rgba(255,255,255,0.35); font-size:10px; padding:8px 0; border:none; background:transparent;}"
-        "QPushButton:hover{color:rgba(255,255,255,0.75);}");
-    connect(versionBtn, &QPushButton::clicked, this, &MainWindow::onShowAbout);
-
-    auto *sideLayout = new QVBoxLayout(sidebar);
+    auto *sideLayout = new QVBoxLayout(m_sidebar);
     sideLayout->setContentsMargins(0, 0, 0, 0);
     sideLayout->setSpacing(0);
-    sideLayout->addWidget(logoArea);
+    sideLayout->addWidget(m_logoArea);
 
     auto *navSpacer = new QWidget();
-    navSpacer->setFixedHeight(12);
+    navSpacer->setFixedHeight(20);
     sideLayout->addWidget(navSpacer);
 
     for (int i = 0; i < 4; ++i) {
         if (i == 3) sideLayout->addStretch();
         sideLayout->addWidget(m_navBtns[i]);
     }
-    sideLayout->addWidget(versionBtn);
+    sideLayout->addWidget(m_versionBtn);
 
     // ── Pages ────────────────────────────────────────────────────────────────
     m_devicesPage    = new DevicesPage(m_db);
@@ -204,9 +200,8 @@ void MainWindow::setupUi() {
     m_stack->addWidget(m_logsPage);
     m_stack->addWidget(m_settingsPage);
 
-    auto *contentArea = new QWidget();
-    contentArea->setStyleSheet(QString("background:%1;").arg(C_PAGE_BG));
-    auto *contentLayout = new QVBoxLayout(contentArea);
+    m_contentArea = new QWidget();
+    auto *contentLayout = new QVBoxLayout(m_contentArea);
     contentLayout->setContentsMargins(0, 0, 0, 0);
     contentLayout->setSpacing(0);
     contentLayout->addWidget(m_stack);
@@ -216,27 +211,30 @@ void MainWindow::setupUi() {
     auto *rootLayout = new QHBoxLayout(root);
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
-    rootLayout->addWidget(sidebar);
-    rootLayout->addWidget(contentArea);
+    rootLayout->addWidget(m_sidebar);
+    rootLayout->addWidget(m_contentArea);
     setCentralWidget(root);
 
     // ── Status bar ───────────────────────────────────────────────────────────
-    statusBar()->setStyleSheet(
-        "QStatusBar { background:#FFFFFF; border-top:1px solid #E5E7EB; font-size:11px; color:#6B7280; }"
-        "QStatusBar::item { border:none; }");
-
     m_statusServer  = new QLabel("● Server starting...");
     m_statusApi     = new QLabel("○ API unknown");
     m_statusPending = new QLabel("0 pending");
 
-    auto *dot1 = new QLabel("|"); dot1->setStyleSheet("color:#D1D5DB;");
-    auto *dot2 = new QLabel("|"); dot2->setStyleSheet("color:#D1D5DB;");
+    m_statusDot1 = new QLabel("|");
+    m_statusDot2 = new QLabel("|");
 
     statusBar()->addWidget(m_statusServer);
-    statusBar()->addWidget(dot1);
+    statusBar()->addWidget(m_statusDot1);
     statusBar()->addWidget(m_statusApi);
-    statusBar()->addWidget(dot2);
+    statusBar()->addWidget(m_statusDot2);
     statusBar()->addWidget(m_statusPending);
+
+    connect(m_attendancePage, &AttendancePage::retryFailedRequested,
+            this, &MainWindow::onRetryFailedRequested);
+    connect(m_attendancePage, &AttendancePage::retryOneRequested,
+            this, &MainWindow::onRetryOneRequested);
+
+    applyTheme();
 
     // ── Signal connections ───────────────────────────────────────────────────
     connect(m_server, &ZkAdmsServer::attendanceReceived,     this, &MainWindow::onAttendanceReceived);
@@ -267,26 +265,92 @@ void MainWindow::setupUi() {
     connect(m_settingsPage, &SettingsPage::serverRestartRequested, this, &MainWindow::onServerRestart);
 }
 
+void MainWindow::applyTheme() {
+    const ThemePalette &t = Theme::current();
+
+    m_sidebar->setStyleSheet(QString(
+        "background:%1; border-right:1px solid %2;").arg(t.sidebarBg.name(), t.border.name()));
+    m_logoArea->setStyleSheet(QString(
+        "background:transparent; border-bottom:1px solid %1;").arg(t.border.name()));
+    m_logoMark->setStyleSheet(QString(
+        "background:%1; color:#FFFFFF; border-radius:8px; font-size:15px; font-weight:800;")
+        .arg((t.isDark ? t.accent : t.textPrimary).name()));
+    m_logoTitle->setText(QString(
+        "<span style='color:%1; font-size:18px; font-weight:700;'>Bio</span>"
+        "<span style='color:%2; font-size:18px; font-weight:800;'>Sync</span>")
+        .arg(t.textPrimary.name(), t.accent.name()));
+    m_versionBtn->setStyleSheet(QString(
+        "QPushButton{color:%1; font-size:11px; font-weight:600; border:none; "
+        "  border-top:1px solid %2; background:transparent;}"
+        "QPushButton:hover{color:%3; background:%4;}")
+        .arg(t.textDisabled.name(), t.border.name(), t.accent.name(), t.sidebarHover.name()));
+    m_contentArea->setStyleSheet(QString("background:%1;").arg(t.pageBg.name()));
+    m_statusDot1->setStyleSheet(QString("color:%1;").arg(t.border.name()));
+    m_statusDot2->setStyleSheet(QString("color:%1;").arg(t.border.name()));
+
+    for (int i = 0; i < 4; ++i) m_navBtns[i]->update();
+
+    updateServerStatus(m_serverRunning, m_serverPort);
+    onApiStatusChanged(m_apiOnline, m_db->getPendingCount());
+
+    if (m_trayIcon) {
+        auto *trayMenu = m_trayIcon->contextMenu();
+        const auto actions = trayMenu->actions();
+        if (actions.size() >= 3) {
+            actions[0]->setIcon(Icons::icon(Icons::Glyph::TrayShow, t.textPrimary, 16));
+            actions[2]->setIcon(Icons::icon(Icons::Glyph::Quit, t.danger, 16));
+        }
+    }
+}
+
+void MainWindow::onRetryFailedRequested() {
+    const int failed = m_db->getFailedCount();
+    if (failed == 0) return;
+    m_db->retryFailedRecords();
+    onLogMessage({}, QString("Retrying %1 failed attendance record(s)...").arg(failed));
+    m_pusher->pushNow();
+    m_attendancePage->refresh();
+}
+
+void MainWindow::onRetryOneRequested(int recordId) {
+    m_db->retryFailedRecords({recordId});
+    onLogMessage({}, QString("Retrying attendance record #%1...").arg(recordId));
+    m_pusher->pushNow();
+    m_attendancePage->refresh();
+}
+
 void MainWindow::setupTray() {
     m_trayIcon = new QSystemTrayIcon(QIcon(":/assets/images/icon.ico"), this);
     m_trayIcon->setToolTip("BioSync — Attendance Manager");
 
     auto *trayMenu = new QMenu(this);
-    trayMenu->addAction("Show BioSync", this, &QWidget::show);
+    trayMenu->addAction(Icons::icon(Icons::Glyph::TrayShow, Theme::current().textPrimary, 16),
+                         "Show BioSync", this, &QWidget::show);
     trayMenu->addSeparator();
-    trayMenu->addAction("Quit", qApp, &QApplication::quit);
+    trayMenu->addAction(Icons::icon(Icons::Glyph::Quit, Theme::current().danger, 16),
+                         "Quit", qApp, &QApplication::quit);
 
     connect(m_trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::onTrayActivated);
     m_trayIcon->setContextMenu(trayMenu);
     m_trayIcon->show();
 }
 
-void MainWindow::startServer() {
+bool MainWindow::startServer() {
     syncKnownSerials();
     quint16 port = static_cast<quint16>(m_db->getSetting("server_port", "8085").toUShort());
     bool ok = m_server->start(port);
     updateServerStatus(ok, port);
     m_settingsPage->updateServerStatus(ok, port);
+
+    if (!ok) {
+        const QString msg = QString("Attendance server failed to start on port %1 — %2")
+                                 .arg(port).arg(m_server->lastError());
+        m_settingsPage->flashServerAction(msg, false);
+        if (m_trayIcon && m_trayIcon->isVisible())
+            m_trayIcon->showMessage("BioSync — Server Failed to Start", msg,
+                QSystemTrayIcon::Warning, 5000);
+    }
+    return ok;
 }
 
 void MainWindow::reloadApiConfig() {
@@ -320,12 +384,15 @@ int MainWindow::autoRegisterDevice(const QString &serial, const QString &ip) {
 }
 
 void MainWindow::updateServerStatus(bool running, quint16 port) {
+    m_serverRunning = running;
+    m_serverPort = port;
+    const ThemePalette &t = Theme::current();
     if (running) {
         m_statusServer->setText(QString("● Server on :%1").arg(port));
-        m_statusServer->setStyleSheet("color:#10B981; font-weight:600;");
+        m_statusServer->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.success.name()));
     } else {
         m_statusServer->setText("✕ Server stopped");
-        m_statusServer->setStyleSheet("color:#EF4444; font-weight:600;");
+        m_statusServer->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.danger.name()));
     }
 }
 
@@ -387,12 +454,14 @@ void MainWindow::onLogMessage(const QString &deviceSerial, const QString &messag
 }
 
 void MainWindow::onApiStatusChanged(bool online, int pendingCount) {
+    m_apiOnline = online;
+    const ThemePalette &t = Theme::current();
     if (online) {
         m_statusApi->setText("● API connected");
-        m_statusApi->setStyleSheet("color:#10B981; font-weight:600;");
+        m_statusApi->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.success.name()));
     } else {
         m_statusApi->setText("○ API offline");
-        m_statusApi->setStyleSheet("color:#F59E0B; font-weight:600;");
+        m_statusApi->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.warning.name()));
     }
     m_statusPending->setText(QString("%1 pending").arg(pendingCount));
 }
@@ -502,12 +571,6 @@ void MainWindow::onBiometricTemplatesReceived(const QString &serial,
 void MainWindow::onRestoreTemplates(const QString &serial) {
     Device d = m_db->getDeviceBySerial(serial);
 
-    auto msgStyle = QString(
-        "QMessageBox { background:#FFFFFF; }"
-        "QMessageBox QPushButton { background:#8222E3; color:#FFFFFF; border-radius:8px;"
-        "  padding:6px 20px; font-weight:600; }"
-        "QMessageBox QPushButton:hover { background:#6A1AB8; }");
-
     QMessageBox mb(this);
     mb.setWindowTitle("Restore Biometric Templates");
     mb.setText(QString("Restore backed-up templates to device %1 (%2)?").arg(d.name, serial));
@@ -516,7 +579,8 @@ void MainWindow::onRestoreTemplates(const QString &serial) {
         "on its next heartbeat poll via ADMS DATA UPDATE command.");
     mb.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
     mb.setIcon(QMessageBox::Question);
-    mb.setStyleSheet(msgStyle);
+    for (auto *btn : mb.findChildren<QPushButton*>())
+        if (mb.standardButton(btn) == QMessageBox::Ok) btn->setProperty("accent", true);
     if (mb.exec() != QMessageBox::Ok) return;
 
     onLogMessage(serial, QString("Fetching templates from server for SN=%1…").arg(serial));
@@ -538,13 +602,17 @@ void MainWindow::onRestoreTemplates(const QString &serial) {
 
 void MainWindow::onServerStart() {
     if (m_server->isRunning()) return;
-    startServer();
+    // startServer() already flashes + tray-notifies on failure; only success needs a message here.
+    if (startServer())
+        m_settingsPage->flashServerAction(
+            QString("Attendance server started on port %1.").arg(m_server->port()), true);
 }
 
 void MainWindow::onServerStop() {
     m_server->stop();
     updateServerStatus(false, 0);
     m_settingsPage->updateServerStatus(false, 0);
+    m_settingsPage->flashServerAction("Attendance server stopped.", true);
     // Mark all devices offline
     for (const QString &serial : m_deviceOnlineMap.keys()) {
         m_deviceOnlineMap[serial] = false;
@@ -555,11 +623,11 @@ void MainWindow::onServerStop() {
 void MainWindow::onServerRestart() {
     m_settingsPage->flashServerAction("Restarting attendance server…", true);
     onServerStop();
-    startServer();
-    const bool ok = m_server->isRunning();
+    const bool ok = startServer();
     const quint16 port = m_server->port();
-    const QString msg = ok ? QString("Attendance server restarted on port %1.").arg(port)
-                           : "Attendance server failed to restart — check the port setting.";
+    const QString msg = ok
+        ? QString("Attendance server restarted on port %1.").arg(port)
+        : QString("Attendance server failed to restart — %1").arg(m_server->lastError());
     m_settingsPage->flashServerAction(msg, ok);
     onApiLogMessage(msg);
     if (m_trayIcon && m_trayIcon->isVisible())
@@ -602,21 +670,21 @@ static int compareVersions(const QString &a, const QString &b) {
 }
 
 void MainWindow::onShowAbout() {
+    const ThemePalette &t = Theme::current();
     QDialog dlg(this);
     dlg.setWindowTitle("About BioSync");
     dlg.setMinimumWidth(420);
-    dlg.setStyleSheet("QDialog{background:#FFFFFF;} QLabel{color:#111827;}");
 
     auto *lay = new QVBoxLayout(&dlg);
     lay->setContentsMargins(24, 22, 24, 20);
     lay->setSpacing(6);
 
     auto *title = new QLabel(BioSync::appName());
-    title->setStyleSheet("font-size:22px; font-weight:800; color:#8222E3;");
+    title->setStyleSheet(QString("font-size:22px; font-weight:800; color:%1;").arg(t.accent.name()));
     lay->addWidget(title);
 
     auto *ver = new QLabel(QString("Version %1  ·  by %2").arg(BioSync::version(), BioSync::publisher()));
-    ver->setStyleSheet("font-size:13px; color:#6B7280;");
+    ver->setStyleSheet("font-size:13px; color:palette(mid);");
     lay->addWidget(ver);
     lay->addSpacing(10);
 
@@ -625,13 +693,13 @@ void MainWindow::onShowAbout() {
         ? QString("✓  Official signed build  ·  key %1").arg(BioSync::secretFingerprint())
         : "⚠  Unsigned build — RiTEMS will reject its attendance data");
     sig->setStyleSheet(QString("font-size:12.5px; font-weight:600; color:%1;")
-                           .arg(signedBuild ? "#10B981" : "#EF4444"));
+                           .arg((signedBuild ? t.success : t.danger).name()));
     sig->setWordWrap(true);
     lay->addWidget(sig);
 
     const QString server = m_db->getSetting("api_url").trimmed();
     auto *srv = new QLabel(QString("Server: %1").arg(server.isEmpty() ? "(not configured)" : server));
-    srv->setStyleSheet("font-size:12px; color:#6B7280;");
+    srv->setStyleSheet("font-size:12px; color:palette(mid);");
     srv->setWordWrap(true);
     lay->addWidget(srv);
 
@@ -640,7 +708,7 @@ void MainWindow::onShowAbout() {
 #else
     auto *plat = new QLabel("Platform: Linux");
 #endif
-    plat->setStyleSheet("font-size:12px; color:#6B7280;");
+    plat->setStyleSheet("font-size:12px; color:palette(mid);");
     lay->addWidget(plat);
 
     // Support contacts (shown only when configured in appinfo.cmake).
@@ -649,7 +717,7 @@ void MainWindow::onShowAbout() {
     if (!BioSync::supportPhone().isEmpty()) support << BioSync::supportPhone();
     if (!support.isEmpty()) {
         auto *sup = new QLabel("Support: " + support.join("  ·  "));
-        sup->setStyleSheet("font-size:12px; color:#6B7280;");
+        sup->setStyleSheet("font-size:12px; color:palette(mid);");
         sup->setTextInteractionFlags(Qt::TextSelectableByMouse);
         sup->setWordWrap(true);
         lay->addWidget(sup);
@@ -658,16 +726,11 @@ void MainWindow::onShowAbout() {
 
     auto *btnRow = new QHBoxLayout();
     auto *btnUpdate = new QPushButton("Check for updates");
+    btnUpdate->setProperty("accent", true);
     btnUpdate->setCursor(Qt::PointingHandCursor);
-    btnUpdate->setStyleSheet(
-        "QPushButton{background:#8222E3; color:#FFF; border:none; padding:8px 16px; border-radius:8px; font-weight:600;}"
-        "QPushButton:hover{background:#6A1AB8;}");
     connect(btnUpdate, &QPushButton::clicked, &dlg, [this, &dlg]() { dlg.accept(); onCheckForUpdates(); });
     auto *btnClose = new QPushButton("Close");
     btnClose->setCursor(Qt::PointingHandCursor);
-    btnClose->setStyleSheet(
-        "QPushButton{background:#F3F4F6; color:#374151; border:none; padding:8px 16px; border-radius:8px; font-weight:600;}"
-        "QPushButton:hover{background:#E5E7EB;}");
     connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
     btnRow->addWidget(btnUpdate);
     btnRow->addStretch();

@@ -2,4 +2,36 @@
     <qresource prefix="/assets">
         <file>images/icon.ico</file>
     </qresource>
+    <qresource prefix="/fonts">
+        <file alias="InstrumentSans.ttf">fonts/InstrumentSans.ttf</file>
+    </qresource>
+    <qresource prefix="/icons">
+        <file alias="refresh.svg">icons/refresh.svg</file>
+        <file alias="retry.svg">icons/retry.svg</file>
+        <file alias="devices.svg">icons/devices.svg</file>
+        <file alias="attendance.svg">icons/attendance.svg</file>
+        <file alias="logs.svg">icons/logs.svg</file>
+        <file alias="settings.svg">icons/settings.svg</file>
+        <file alias="add.svg">icons/add.svg</file>
+        <file alias="edit.svg">icons/edit.svg</file>
+        <file alias="delete.svg">icons/delete.svg</file>
+        <file alias="play.svg">icons/play.svg</file>
+        <file alias="pause.svg">icons/pause.svg</file>
+        <file alias="restart.svg">icons/restart.svg</file>
+        <file alias="upload.svg">icons/upload.svg</file>
+        <file alias="download.svg">icons/download.svg</file>
+        <file alias="chevron_right.svg">icons/chevron_right.svg</file>
+        <file alias="warning.svg">icons/warning.svg</file>
+        <file alias="success.svg">icons/success.svg</file>
+        <file alias="error.svg">icons/error.svg</file>
+        <file alias="pending.svg">icons/pending.svg</file>
+        <file alias="online.svg">icons/online.svg</file>
+        <file alias="offline.svg">icons/offline.svg</file>
+        <file alias="close.svg">icons/close.svg</file>
+        <file alias="info.svg">icons/info.svg</file>
+        <file alias="monitor.svg">icons/monitor.svg</file>
+        <file alias="search.svg">icons/search.svg</file>
+        <file alias="tray_show.svg">icons/tray_show.svg</file>
+        <file alias="quit.svg">icons/quit.svg</file>
+    </qresource>
 </RCC>

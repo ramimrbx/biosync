@@ -3,6 +3,29 @@
 All notable changes to BioSync are recorded here. Installing a newer version over an older one
 upgrades in place — your configuration, devices and pending records are kept.
 
+## 1.3.2 — 2026-09-17
+- **Fixed "address already in use" after a manual update** — installing a new version by
+  downloading and running the installer directly (rather than through the in-app updater) could
+  leave the previous version's process — the interactive app (it keeps running in the tray after
+  the window is closed) and/or the headless startup service — still running and holding the ADMS
+  port, so the new version failed to bind it. The installer now stops both before installing
+  files, so a direct download-and-run upgrades exactly as cleanly as the in-app updater does.
+- **Server start/stop/restart now always shows what happened** — pressing Start, Stop or Restart
+  on the Settings page (and a failed auto-start at launch) now shows a clear confirmation or error,
+  including the actual reason for a failure, as a toast and a tray notification, instead of only
+  being visible on the Logs page.
+
+## 1.3.1 — 2026-09-17
+- **Fixed harsh selection color** — clicking a device or attendance row no longer flashes solid
+  purple; rows now highlight with the same soft accent tint used elsewhere in the UI, and rows
+  also highlight softly on hover.
+
+## 1.3.0 — 2026-09-17
+- **Redesigned UI** — every screen now follows ritems' web client visual language: the same accent
+  color, surfaces, borders and typography, restyled buttons/inputs/tables/dialogs, and a sidebar
+  that mirrors ritems' nav (bordered rail, rounded active/hover pills, left accent bar, two-tone
+  wordmark).
+
 ## 1.2.0 — 2026-09-16
 - **About panel** — click the version at the bottom of the sidebar to see the build version, whether
   it is an official **signed** build (with a safe key fingerprint), and the configured server.

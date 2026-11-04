@@ -31,6 +31,7 @@ private slots:
     void onEditDevice();
     void onRemoveDevice();
     void onContextMenuRequested(const QPoint &pos);
+    void applyTheme();
 
 private:
     Database      *m_db;

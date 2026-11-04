@@ -24,6 +24,7 @@ signals:
 
 private slots:
     void onSave();
+    void applyTheme();
 
 private:
     Database   *m_db;

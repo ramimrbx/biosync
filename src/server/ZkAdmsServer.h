@@ -33,6 +33,9 @@ public:
     void stop();
     bool isRunning() const;
     quint16 port() const;
+    // The OS error from the most recent failed start() (e.g. "Address already in use"), so
+    // callers can show the caller *why* the bind failed, not just that it did.
+    QString lastError() const { return m_lastError; }
 
     void setKnownSerials(const QSet<QString> &serials);
     void addKnownSerial(const QString &serial);
@@ -62,6 +65,7 @@ private slots:
 
 private:
     QTcpServer *m_server = nullptr;
+    QString m_lastError;
     QHash<QTcpSocket*, QByteArray>       m_buffers;
     QSet<QString>                         m_knownSerials;
     QHash<QString, QQueue<QueuedCommand>> m_commandQueues;

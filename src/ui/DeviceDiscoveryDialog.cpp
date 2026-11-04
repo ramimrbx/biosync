@@ -1,4 +1,5 @@
 #include "DeviceDiscoveryDialog.h"
+#include "ui/Theme.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -13,23 +14,27 @@
 DeviceDiscoveryDialog::DeviceDiscoveryDialog(const QSet<QString> &existingSerials, QWidget *parent)
     : QDialog(parent), m_existingSerials(existingSerials)
 {
+    const ThemePalette &t = Theme::current();
     setWindowTitle("Discover Network Devices");
     setMinimumSize(640, 480);
-    setStyleSheet(
-        "QDialog { background:#F4F6FB; }"
-        "QLabel  { color:#374151; }");
+    setStyleSheet(QString(
+        "QDialog { background:%1; }"
+        "QLabel  { color:%2; }").arg(t.pageBg.name(), t.textSecondary.name()));
 
-    // ── Title bar ─────────────────────────────────────────────────────────────
+    // ── Header ───────────────────────────────────────────────────────────────
+    // Mirrors ritems' Modal.tsx "default" header: a soft accent wash with an accent-colored
+    // title, not a solid brand-color banner.
     auto *titleBar = new QWidget();
-    titleBar->setStyleSheet(
-        "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #8222E3,stop:1 #A855F7);");
+    titleBar->setAttribute(Qt::WA_StyledBackground, true);
+    titleBar->setStyleSheet(QString(
+        "background:%1; border-bottom:1px solid %2;").arg(t.accentSoft(), t.border.name()));
     titleBar->setFixedHeight(58);
     auto *tbLayout = new QHBoxLayout(titleBar);
     tbLayout->setContentsMargins(20, 0, 20, 0);
     auto *tbTitle = new QLabel("Discover ZKTeco Devices");
-    tbTitle->setStyleSheet("color:#FFFFFF; font-size:16px; font-weight:700;");
+    tbTitle->setStyleSheet(QString("color:%1; font-size:16px; font-weight:700;").arg(t.accent.name()));
     auto *tbSub = new QLabel("Automatically find devices on your network");
-    tbSub->setStyleSheet("color:rgba(255,255,255,0.7); font-size:11px;");
+    tbSub->setStyleSheet(QString("color:%1; font-size:11px;").arg(t.textSecondary.name()));
     auto *tbTextCol = new QVBoxLayout();
     tbTextCol->setSpacing(2);
     tbTextCol->addWidget(tbTitle);
@@ -38,17 +43,17 @@ DeviceDiscoveryDialog::DeviceDiscoveryDialog(const QSet<QString> &existingSerial
 
     // ── Progress area ─────────────────────────────────────────────────────────
     m_statusLabel = new QLabel("Broadcasting discovery packet across your network...");
-    m_statusLabel->setStyleSheet("font-size:12px; color:#6B7280;");
+    m_statusLabel->setStyleSheet(QString("font-size:12px; color:%1;").arg(t.textSecondary.name()));
 
     m_progress = new QProgressBar();
     m_progress->setRange(0, 100);
     m_progress->setValue(0);
     m_progress->setTextVisible(false);
     m_progress->setFixedHeight(5);
-    m_progress->setStyleSheet(
-        "QProgressBar { background:#E5E7EB; border-radius:3px; border:none; }"
-        "QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-        "  stop:0 #8222E3, stop:1 #A855F7); border-radius:3px; }");
+    m_progress->setStyleSheet(QString(
+        "QProgressBar { background:%1; border-radius:3px; border:none; }"
+        "QProgressBar::chunk { background:%2; border-radius:3px; }")
+        .arg(t.border.name(), t.accent.name()));
 
     // ── Table ─────────────────────────────────────────────────────────────────
     m_table = new QTableWidget(0, 5);
@@ -63,46 +68,53 @@ DeviceDiscoveryDialog::DeviceDiscoveryDialog(const QSet<QString> &existingSerial
     m_table->setShowGrid(false);
     m_table->setFocusPolicy(Qt::NoFocus);
     m_table->verticalHeader()->setDefaultSectionSize(44);
-    m_table->setStyleSheet(
-        "QTableWidget { background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:10px;"
-        "  font-size:12px; outline:0; }"
-        "QTableWidget::item { padding:6px 10px; border:none; color:#374151; }"
-        "QHeaderView::section { background:#F9FAFB; color:#6B7280; border:none;"
-        "  border-bottom:1.5px solid #E5E7EB; padding:8px 10px; font-weight:600; font-size:11px; }"
-        "QScrollBar:vertical { background:#F9FAFB; width:8px; border-radius:4px; }"
-        "QScrollBar::handle:vertical { background:#D1D5DB; border-radius:4px; min-height:30px; }"
-        "QScrollBar::handle:vertical:hover { background:#8222E3; }");
+    m_table->setStyleSheet(QString(
+        "QTableWidget { background:%1; border:1.5px solid %2; border-radius:12px;"
+        "  font-size:13px; outline:0; }"
+        "QTableWidget::item { padding:6px 10px; border:none; color:%3; }"
+        "QHeaderView::section { background:%4; color:%5; border:none;"
+        "  border-bottom:1.5px solid %2; padding:10px 10px; font-weight:700; font-size:11px; }"
+        "QScrollBar:vertical { background:%4; width:8px; border-radius:4px; }"
+        "QScrollBar::handle:vertical { background:%6; border-radius:4px; min-height:30px; }"
+        "QScrollBar::handle:vertical:hover { background:%7; }")
+        .arg(t.cardBg.name(), t.border.name(), t.textSecondary.name(), t.headerBg.name(),
+             t.textDisabled.name(), t.scrollHandle.name(), t.accent.name()));
 
     // ── Empty state label ─────────────────────────────────────────────────────
     m_emptyLabel = new QLabel("Searching for ZKTeco devices on your network...");
     m_emptyLabel->setAlignment(Qt::AlignCenter);
-    m_emptyLabel->setStyleSheet("color:#9CA3AF; font-size:13px; padding:40px;");
+    m_emptyLabel->setStyleSheet(QString("color:%1; font-size:13px; padding:40px;").arg(t.placeholder.name()));
 
     // ── Buttons ───────────────────────────────────────────────────────────────
     m_btnRescan = new QPushButton("⊕  Scan Again");
     m_btnRescan->setEnabled(false);
-    m_btnRescan->setStyleSheet(
-        "QPushButton { background:#FFFFFF; color:#374151; border:1.5px solid #E5E7EB;"
-        "  padding:7px 16px; border-radius:8px; font-weight:500; font-size:12px; }"
-        "QPushButton:enabled:hover { background:#F9F5FF; border-color:#8222E3; color:#8222E3; }"
-        "QPushButton:disabled { color:#9CA3AF; }");
+    m_btnRescan->setStyleSheet(QString(
+        "QPushButton { background:%1; color:%2; border:1.5px solid %3;"
+        "  padding:8px 16px; border-radius:12px; font-weight:600; font-size:12px; }"
+        "QPushButton:enabled:hover { background:%4; border-color:%5; color:%5; }"
+        "QPushButton:disabled { color:%6; }")
+        .arg(t.cardBg.name(), t.textSecondary.name(), t.border.name(), t.accentSoft(),
+             t.accent.name(), t.textDisabled.name()));
     m_btnRescan->setCursor(Qt::PointingHandCursor);
 
     m_btnAdd = new QPushButton("Add Selected Devices");
     m_btnAdd->setEnabled(false);
-    m_btnAdd->setStyleSheet(
-        "QPushButton { background:#8222E3; color:#FFFFFF; border:none;"
-        "  padding:9px 24px; border-radius:8px; font-weight:700; font-size:13px; }"
-        "QPushButton:enabled:hover   { background:#6A1AB8; }"
-        "QPushButton:enabled:pressed { background:#5a14a0; }"
-        "QPushButton:disabled { background:#D1D5DB; color:#9CA3AF; }");
+    m_btnAdd->setStyleSheet(QString(
+        "QPushButton { background:%1; color:%2; border:none;"
+        "  padding:10px 24px; border-radius:12px; font-weight:700; font-size:13px; }"
+        "QPushButton:enabled:hover   { background:%3; }"
+        "QPushButton:enabled:pressed { background:%4; }"
+        "QPushButton:disabled { background:%5; color:%6; }")
+        .arg(t.accent.name(), t.onAccent.name(), t.accentHover.name(), t.accentPressed.name(),
+             t.border.name(), t.textDisabled.name()));
     m_btnAdd->setCursor(Qt::PointingHandCursor);
 
     auto *btnClose = new QPushButton("Cancel");
-    btnClose->setStyleSheet(
-        "QPushButton { background:#FFFFFF; color:#374151; border:1.5px solid #E5E7EB;"
-        "  padding:9px 20px; border-radius:8px; font-weight:500; font-size:12px; }"
-        "QPushButton:hover { background:#F9F5FF; border-color:#8222E3; color:#8222E3; }");
+    btnClose->setStyleSheet(QString(
+        "QPushButton { background:%1; color:%2; border:1.5px solid %3;"
+        "  padding:10px 20px; border-radius:12px; font-weight:600; font-size:12px; }"
+        "QPushButton:hover { background:%4; border-color:%5; color:%5; }")
+        .arg(t.cardBg.name(), t.textSecondary.name(), t.border.name(), t.accentSoft(), t.accent.name()));
     btnClose->setCursor(Qt::PointingHandCursor);
     connect(btnClose,  &QPushButton::clicked, this, &QDialog::reject);
     connect(m_btnAdd,  &QPushButton::clicked, this, &DeviceDiscoveryDialog::onAddSelected);
@@ -148,14 +160,17 @@ void DeviceDiscoveryDialog::addDeviceRow(const DiscoveredDevice &dev) {
     int row = m_table->rowCount();
     m_table->insertRow(row);
 
+    const ThemePalette &t = Theme::current();
+
     // Checkbox
     auto *chk = new QCheckBox();
     chk->setChecked(!m_existingSerials.contains(dev.serialNumber));
     chk->setEnabled(!m_existingSerials.contains(dev.serialNumber));
-    chk->setStyleSheet(
+    chk->setStyleSheet(QString(
         "QCheckBox::indicator { width:18px; height:18px; border-radius:5px;"
-        "  border:1.5px solid #D1D5DB; background:#FFFFFF; }"
-        "QCheckBox::indicator:checked { background:#8222E3; border-color:#8222E3; }");
+        "  border:1.5px solid %1; background:%2; }"
+        "QCheckBox::indicator:checked { background:%3; border-color:%3; }")
+        .arg(t.border.name(), t.cardBg.name(), t.accent.name()));
     auto *chkCell = new QWidget();
     auto *chkCellLayout = new QHBoxLayout(chkCell);
     chkCellLayout->addWidget(chk);
@@ -167,46 +182,50 @@ void DeviceDiscoveryDialog::addDeviceRow(const DiscoveredDevice &dev) {
     m_table->setItem(row, 2, new QTableWidgetItem(dev.ipAddress));
     m_table->setItem(row, 3, new QTableWidgetItem(dev.model.isEmpty() ? "ZKTeco Device" : dev.model));
 
-    // Status pill
+    // Status pill — matches ritems' Badge.tsx: success (already added) vs. primary (new).
     bool existing = m_existingSerials.contains(dev.serialNumber);
     auto *statusCell = new QWidget();
     auto *statusLayout = new QHBoxLayout(statusCell);
     statusLayout->setContentsMargins(6,0,6,0);
     auto *pill = new QLabel(existing ? "Already added" : "New");
     pill->setAlignment(Qt::AlignCenter);
+    const QColor &sb = t.successBg;
     pill->setStyleSheet(existing
-        ? "background:#D1FAE5; color:#065F46; border-radius:8px; padding:2px 10px; font-size:11px; font-weight:600;"
-        : "background:#EDE5FB; color:#6A1AB8; border-radius:8px; padding:2px 10px; font-size:11px; font-weight:600;");
+        ? QString("background:rgba(%1,%2,%3,%4); color:%5; border-radius:9px; padding:2px 10px; font-size:11px; font-weight:600;")
+              .arg(sb.red()).arg(sb.green()).arg(sb.blue()).arg(sb.alpha()).arg(t.success.name())
+        : QString("background:%1; color:%2; border-radius:9px; padding:2px 10px; font-size:11px; font-weight:600;")
+              .arg(t.accentSoft(), t.accent.name()));
     statusLayout->addWidget(pill, 0, Qt::AlignVCenter);
     m_table->setCellWidget(row, 4, statusCell);
 }
 
 void DeviceDiscoveryDialog::onScanFinished(int total) {
+    const ThemePalette &t = Theme::current();
     m_progress->setValue(100);
     m_btnRescan->setEnabled(true);
     if (total == 0) {
         m_statusLabel->setText(
             "No devices found. Ensure devices are on the same network with ADMS enabled.");
-        m_statusLabel->setStyleSheet("font-size:12px; color:#F59E0B;");
+        m_statusLabel->setStyleSheet(QString("font-size:12px; color:%1;").arg(t.warning.name()));
         m_table->setRowCount(0);
         // Show empty-state hint row
         m_table->insertRow(0);
         auto *emptyItem = new QTableWidgetItem(
             "No devices responded. Try configuring device ADMS settings first.");
         emptyItem->setTextAlignment(Qt::AlignCenter);
-        emptyItem->setForeground(QColor("#9CA3AF"));
+        emptyItem->setForeground(t.placeholder);
         m_table->setItem(0, 1, emptyItem);
         m_table->setSpan(0, 1, 1, 4);
     } else {
         m_statusLabel->setText(QString("Found %1 device(s). Check devices to add and click \"Add Selected\".").arg(total));
-        m_statusLabel->setStyleSheet("font-size:12px; color:#10B981; font-weight:600;");
+        m_statusLabel->setStyleSheet(QString("font-size:12px; color:%1; font-weight:600;").arg(t.success.name()));
     }
 }
 
 void DeviceDiscoveryDialog::onProgress(int percent, const QString &status) {
     m_progress->setValue(percent);
     m_statusLabel->setText(status);
-    m_statusLabel->setStyleSheet("font-size:12px; color:#6B7280;");
+    m_statusLabel->setStyleSheet(QString("font-size:12px; color:%1;").arg(Theme::current().textSecondary.name()));
     m_btnRescan->setEnabled(percent == 100);
 }
 

@@ -10,6 +10,12 @@
 #include <QProcess>
 #include "MainWindow.h"
 #include "HeadlessRunner.h"
+#include "ui/Theme.h"
+#include "ui/SplashScreen.h"
+#include <QFontDatabase>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QTimer>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -72,9 +78,14 @@ int main(int argc, char *argv[]) {
     // any login (systemd on Linux, a boot task/service on Windows). Detected before any QApplication
     // is built, so no display/session is ever required.
     bool headless = false;
+    // Set on the autostart Run-key entry (see Autostart::setEnabled) — the GUI process was
+    // launched silently at login, so it should settle straight into the tray instead of
+    // popping the main window open in front of the user.
+    bool autostart = false;
     for (int i = 1; i < argc; ++i) {
         const QString a = QString::fromLocal8Bit(argv[i]);
         if (a == "--headless" || a == "--service" || a == "-H") headless = true;
+        if (a == "--autostart") autostart = true;
     }
     if (headless) {
         QCoreApplication::setApplicationName("BioSync");
@@ -99,6 +110,11 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationVersion("1.1.0");
     QApplication::setDesktopFileName("biosync");   // matches biosync.desktop
 
+    // Fractional Windows scale factors (125%, 150%, ...) render crisp instead of being rounded
+    // to the nearest integer step first. Must be set before QApplication is constructed.
+    QApplication::setHighDpiScaleFactorRoundingPolicy(
+        Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+
     QApplication app(argc, argv);
     app.setStyle("Fusion");
 
@@ -109,30 +125,42 @@ int main(int argc, char *argv[]) {
     const QIcon appIcon(":/assets/images/icon.ico");
     app.setWindowIcon(appIcon);
 
-    // Base font
-    QFont appFont("Segoe UI", 10);
+    // Brand font, bundled as a Qt resource so it doesn't need to be installed on the system.
+    QString fontFamily = QStringLiteral("Segoe UI");
+    const int fontId = QFontDatabase::addApplicationFont(":/fonts/InstrumentSans.ttf");
+    if (fontId != -1) {
+        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+        if (!families.isEmpty()) fontFamily = families.first();
+    }
+    QFont appFont(fontFamily, 10);
     appFont.setHintingPreference(QFont::PreferFullHinting);
     app.setFont(appFont);
 
-    // Global palette
-    QPalette p;
-    p.setColor(QPalette::Window,          QColor("#F4F6FB"));
-    p.setColor(QPalette::WindowText,      QColor("#1A1A2E"));
-    p.setColor(QPalette::Base,            QColor("#FFFFFF"));
-    p.setColor(QPalette::AlternateBase,   QColor("#F8F9FC"));
-    p.setColor(QPalette::Text,            QColor("#1A1A2E"));
-    p.setColor(QPalette::BrightText,      QColor("#FFFFFF"));
-    p.setColor(QPalette::Button,          QColor("#FFFFFF"));
-    p.setColor(QPalette::ButtonText,      QColor("#1A1A2E"));
-    p.setColor(QPalette::Highlight,       QColor("#8222E3"));
-    p.setColor(QPalette::HighlightedText, QColor("#FFFFFF"));
-    p.setColor(QPalette::ToolTipBase,     QColor("#1A0A33"));
-    p.setColor(QPalette::ToolTipText,     QColor("#FFFFFF"));
-    p.setColor(QPalette::PlaceholderText, QColor("#9CA3AF"));
-    app.setPalette(p);
+    // Builds the light/dark palette + global stylesheet from the current OS color scheme, and
+    // wires live re-theming if the user flips Windows' light/dark setting while BioSync runs.
+    Theme::instance().init();
+
+    // Splash: shown on every GUI launch (including a silent autostart run) while MainWindow does
+    // its real startup work (DB open, ADMS server bind), then fades into the main window/tray.
+    auto *splash = new SplashScreen();
+    splash->show();
+    app.processEvents();
+
+    QElapsedTimer startupTimer;
+    startupTimer.start();
 
     MainWindow window;
-    window.show();
+
+    constexpr int kMinSplashMs = 1800;
+    const int remaining = kMinSplashMs - int(startupTimer.elapsed());
+    if (remaining > 0) {
+        QEventLoop waitLoop;
+        QTimer::singleShot(remaining, &waitLoop, &QEventLoop::quit);
+        waitLoop.exec();
+    }
+    splash->fadeOutAndClose();
+
+    if (!autostart) window.show();
 
     // Set icon on the native window handle (X11 _NET_WM_ICON property)
     if (QWindow *handle = window.windowHandle())

@@ -14,6 +14,7 @@ public:
 
 private slots:
     void loadLogs();
+    void applyTheme();
 
 private:
     Database       *m_db;

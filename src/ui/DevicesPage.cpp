@@ -1,5 +1,7 @@
 #include "DevicesPage.h"
 #include "AddDeviceDialog.h"
+#include "Theme.h"
+#include "Icons.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -10,84 +12,35 @@
 #include <QMenu>
 #include <QAction>
 
-// ── Shared style helpers ──────────────────────────────────────────────────────
-static QString primaryBtn() {
-    return "QPushButton {"
-           "  background:#8222E3; color:#FFFFFF; border:none;"
-           "  padding:8px 18px; border-radius:8px; font-weight:600; font-size:12px;"
-           "}"
-           "QPushButton:hover   { background:#6A1AB8; }"
-           "QPushButton:pressed { background:#5a14a0; }";
-}
-static QString secondaryBtn() {
-    return "QPushButton {"
-           "  background:#FFFFFF; color:#374151; border:1.5px solid #E5E7EB;"
-           "  padding:7px 16px; border-radius:8px; font-weight:500; font-size:12px;"
-           "}"
-           "QPushButton:hover   { background:#F9F5FF; border-color:#8222E3; color:#8222E3; }"
-           "QPushButton:pressed { background:#EDE5FB; }";
-}
-static QString dangerBtn() {
-    return "QPushButton {"
-           "  background:#FFFFFF; color:#EF4444; border:1.5px solid #FECACA;"
-           "  padding:7px 16px; border-radius:8px; font-weight:500; font-size:12px;"
-           "}"
-           "QPushButton:hover   { background:#FEF2F2; border-color:#EF4444; }"
-           "QPushButton:pressed { background:#FEE2E2; }";
-}
-static QString tableStyle() {
-    return "QTableWidget {"
-           "  background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:10px;"
-           "  gridline-color:#F3F4F6; font-size:12px; outline:0;"
-           "}"
-           "QTableWidget::item { padding:6px 12px; border:none; color:#374151; }"
-           "QTableWidget::item:selected {"
-           "  background:#F5EEFF; color:#6A1AB8;"
-           "}"
-           "QHeaderView::section {"
-           "  background:#F9FAFB; color:#6B7280; border:none;"
-           "  border-bottom:1.5px solid #E5E7EB; padding:8px 12px;"
-           "  font-weight:600; font-size:11px; text-transform:uppercase;"
-           "}"
-           "QTableWidget QScrollBar:vertical {"
-           "  background:#F9FAFB; width:8px; border-radius:4px;"
-           "}"
-           "QTableWidget QScrollBar::handle:vertical {"
-           "  background:#D1D5DB; border-radius:4px; min-height:30px;"
-           "}"
-           "QTableWidget QScrollBar::handle:vertical:hover { background:#8222E3; }";
-}
-
 // Column indices
 enum Col { ColStatus=0, ColName, ColSerial, ColDeviceIp, ColSocketIp, ColPort, ColLocation, ColLastSeen, ColCount };
 
 DevicesPage::DevicesPage(Database *db, QWidget *parent)
     : QWidget(parent), m_db(db)
 {
-    setStyleSheet("background:#F4F6FB;");
-
     // ── Page header ──────────────────────────────────────────────────────────
     auto *header = new QWidget();
-    header->setStyleSheet("background:#FFFFFF; border-bottom:1.5px solid #E5E7EB;");
+    header->setObjectName("devHeader");
     header->setFixedHeight(70);
     auto *hdrLayout = new QHBoxLayout(header);
     hdrLayout->setContentsMargins(28, 0, 28, 0);
 
     auto *titleBlock = new QVBoxLayout();
     auto *titleLabel = new QLabel("Devices");
-    titleLabel->setStyleSheet("font-size:18px; font-weight:700; color:#111827;");
+    titleLabel->setStyleSheet("font-size:18px; font-weight:700;");
     auto *subLabel = new QLabel("Manage ZKTeco attendance devices");
-    subLabel->setStyleSheet("font-size:12px; color:#6B7280;");
+    subLabel->setStyleSheet("font-size:12px; color:palette(mid);");
     titleBlock->setSpacing(2);
     titleBlock->addWidget(titleLabel);
     titleBlock->addWidget(subLabel);
 
-    auto *btnScan = new QPushButton("⊕  Scan Network");
-    btnScan->setStyleSheet(primaryBtn());
+    auto *btnScan = new QPushButton(" Scan Network");
+    btnScan->setProperty("accent", true);
+    btnScan->setIcon(Icons::icon(Icons::Glyph::Search, Qt::white, 15, devicePixelRatioF()));
     btnScan->setCursor(Qt::PointingHandCursor);
 
-    auto *btnAdd = new QPushButton("+ Add Manually");
-    btnAdd->setStyleSheet(secondaryBtn());
+    auto *btnAdd = new QPushButton(" Add Manually");
+    btnAdd->setIcon(Icons::icon(Icons::Glyph::Add, Theme::current().textPrimary, 15, devicePixelRatioF()));
     btnAdd->setCursor(Qt::PointingHandCursor);
 
     hdrLayout->addLayout(titleBlock);
@@ -96,9 +49,10 @@ DevicesPage::DevicesPage(Database *db, QWidget *parent)
     hdrLayout->addWidget(btnAdd);
 
     // ── Stat cards ───────────────────────────────────────────────────────────
-    m_cardTotal  = makeStatCard("Total", "0",  "#8222E3");
-    m_cardOnline = makeStatCard("Online", "0", "#10B981");
-    m_cardOff    = makeStatCard("Offline", "0","#EF4444");
+    const ThemePalette &t0 = Theme::current();
+    m_cardTotal  = makeStatCard("Total", "0",  t0.accent.name());
+    m_cardOnline = makeStatCard("Online", "0", t0.success.name());
+    m_cardOff    = makeStatCard("Offline", "0", t0.danger.name());
 
     auto *cardsRow = new QHBoxLayout();
     cardsRow->setSpacing(16);
@@ -108,10 +62,11 @@ DevicesPage::DevicesPage(Database *db, QWidget *parent)
     cardsRow->addStretch();
 
     // ── Table toolbar ────────────────────────────────────────────────────────
-    m_btnEdit   = new QPushButton("✎  Edit");
-    m_btnRemove = new QPushButton("✕  Remove");
-    m_btnEdit->setStyleSheet(secondaryBtn());
-    m_btnRemove->setStyleSheet(dangerBtn());
+    m_btnEdit   = new QPushButton(" Edit");
+    m_btnRemove = new QPushButton(" Remove");
+    m_btnEdit->setIcon(Icons::icon(Icons::Glyph::Edit, Theme::current().textPrimary, 14, devicePixelRatioF()));
+    m_btnRemove->setIcon(Icons::icon(Icons::Glyph::Delete, Theme::current().danger, 14, devicePixelRatioF()));
+    m_btnRemove->setProperty("danger", true);
     m_btnEdit->setCursor(Qt::PointingHandCursor);
     m_btnRemove->setCursor(Qt::PointingHandCursor);
 
@@ -135,7 +90,6 @@ DevicesPage::DevicesPage(Database *db, QWidget *parent)
     m_table->setAlternatingRowColors(false);
     m_table->verticalHeader()->hide();
     m_table->setShowGrid(false);
-    m_table->setStyleSheet(tableStyle());
     m_table->setFocusPolicy(Qt::NoFocus);
     m_table->verticalHeader()->setDefaultSectionSize(44);
     m_table->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -162,20 +116,37 @@ DevicesPage::DevicesPage(Database *db, QWidget *parent)
     connect(m_table, &QTableWidget::customContextMenuRequested,
             this, &DevicesPage::onContextMenuRequested);
 
+    applyTheme();
+    connect(&Theme::instance(), &Theme::changed, this, &DevicesPage::applyTheme);
+
     refresh();
 }
 
+void DevicesPage::applyTheme() {
+    const ThemePalette &t = Theme::current();
+    setStyleSheet(QString("background:%1;").arg(t.pageBg.name()));
+    findChild<QWidget*>("devHeader")->setStyleSheet(
+        QString("#devHeader{background:%1; border-bottom:1.5px solid %2;}")
+            .arg(t.headerBg.name(), t.border.name()));
+
+    for (QWidget *card : {m_cardTotal, m_cardOnline, m_cardOff})
+        card->setStyleSheet(QString("background:%1; border-radius:12px; border:1.5px solid %2;")
+                                 .arg(t.cardBg.name(), t.border.name()));
+    populateTable(m_db->getAllDevices());
+}
+
 QWidget *DevicesPage::makeStatCard(const QString &label, const QString &value, const QString &color) {
+    const ThemePalette &t = Theme::current();
     auto *card = new QWidget();
     card->setFixedSize(130, 68);
     card->setStyleSheet(QString(
-        "background:#FFFFFF; border-radius:10px; border:1.5px solid #E5E7EB;"));
+        "background:%1; border-radius:12px; border:1.5px solid %2;").arg(t.cardBg.name(), t.border.name()));
 
     auto *val = new QLabel(value);
     val->setObjectName("val");
     val->setStyleSheet(QString("font-size:22px; font-weight:700; color:%1;").arg(color));
     auto *lbl = new QLabel(label);
-    lbl->setStyleSheet("font-size:11px; color:#6B7280; font-weight:500;");
+    lbl->setStyleSheet("font-size:11px; color:palette(mid); font-weight:500;");
 
     auto *lay = new QVBoxLayout(card);
     lay->setContentsMargins(14, 10, 14, 10);
@@ -206,6 +177,26 @@ void DevicesPage::refresh() {
     updateStatCards();
 }
 
+static QWidget *makeStatusPill(bool online) {
+    const ThemePalette &t = Theme::current();
+    auto *statusWidget = new QWidget();
+    auto *statusLayout = new QHBoxLayout(statusWidget);
+    statusLayout->setContentsMargins(8, 0, 8, 0);
+    statusLayout->setSpacing(5);
+    auto *iconLbl = new QLabel();
+    iconLbl->setPixmap(Icons::pixmap(online ? Icons::Glyph::Online : Icons::Glyph::Offline,
+                                      online ? t.success : t.textDisabled, 10,
+                                      statusWidget->devicePixelRatioF()));
+    auto *pill = new QLabel(online ? "Online" : "Offline");
+    pill->setStyleSheet(QString("color:%1; font-size:11px; font-weight:600;")
+                             .arg((online ? t.success : t.textSecondary).name()));
+    statusWidget->setStyleSheet(QString("background:%1; border-radius:10px;")
+                                     .arg((online ? t.successBg : t.border).name()));
+    statusLayout->addWidget(iconLbl, 0, Qt::AlignVCenter);
+    statusLayout->addWidget(pill, 0, Qt::AlignVCenter);
+    return statusWidget;
+}
+
 void DevicesPage::populateTable(const QList<Device> &devices) {
     m_table->setRowCount(0);
     m_serialToRow.clear();
@@ -216,20 +207,9 @@ void DevicesPage::populateTable(const QList<Device> &devices) {
         m_serialToRow[d.serialNumber] = row;
 
         bool online = m_onlineSet.contains(d.serialNumber);
+        m_table->setCellWidget(row, ColStatus, makeStatusPill(online));
 
-        // Status pill
-        auto *statusWidget = new QWidget();
-        auto *statusLayout = new QHBoxLayout(statusWidget);
-        statusLayout->setContentsMargins(8, 0, 8, 0);
-        auto *pill = new QLabel(online ? "● Online" : "○ Offline");
-        pill->setAlignment(Qt::AlignCenter);
-        pill->setStyleSheet(online
-            ? "background:#D1FAE5; color:#065F46; border-radius:10px; padding:3px 10px; font-size:11px; font-weight:600;"
-            : "background:#F3F4F6; color:#6B7280; border-radius:10px; padding:3px 10px; font-size:11px; font-weight:600;");
-        statusLayout->addWidget(pill, 0, Qt::AlignVCenter);
-        m_table->setCellWidget(row, ColStatus, statusWidget);
-
-        QColor textColor = d.isActive ? QColor("#374151") : QColor("#D1D5DB");
+        QColor textColor = d.isActive ? Theme::current().textPrimary : Theme::current().textDisabled;
         auto mkItem = [&](const QString &text) {
             auto *i = new QTableWidgetItem(text);
             i->setData(Qt::UserRole, d.id);
@@ -255,14 +235,7 @@ void DevicesPage::markDeviceOnline(const QString &serial, bool online) {
     if (!m_serialToRow.contains(serial)) { refresh(); return; }
     int row = m_serialToRow[serial];
 
-    auto *w = m_table->cellWidget(row, ColStatus);
-    if (!w) return;
-    auto *pill = w->findChild<QLabel*>();
-    if (!pill) return;
-    pill->setText(online ? "● Online" : "○ Offline");
-    pill->setStyleSheet(online
-        ? "background:#D1FAE5; color:#065F46; border-radius:10px; padding:3px 10px; font-size:11px; font-weight:600;"
-        : "background:#F3F4F6; color:#6B7280; border-radius:10px; padding:3px 10px; font-size:11px; font-weight:600;");
+    m_table->setCellWidget(row, ColStatus, makeStatusPill(online));
 
     if (online && m_table->item(row, ColLastSeen))
         m_table->item(row, ColLastSeen)->setText(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm"));
@@ -295,60 +268,47 @@ void DevicesPage::onContextMenuRequested(const QPoint &pos) {
     if (!d.id) return;
 
     bool online = m_onlineSet.contains(d.serialNumber);
+    const ThemePalette &t = Theme::current();
+    const qreal dpr = devicePixelRatioF();
 
     QMenu menu(this);
-    menu.setStyleSheet(
-        "QMenu { background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:8px; padding:4px; }"
-        "QMenu::item { padding:8px 20px; border-radius:6px; font-size:12px; color:#374151; }"
-        "QMenu::item:selected { background:#F5EEFF; color:#6A1AB8; }"
-        "QMenu::separator { height:1px; background:#F3F4F6; margin:4px 8px; }");
 
     // Activate / Deactivate
     if (d.isActive) {
-        auto *act = menu.addAction("⏸  Deactivate");
-        connect(act, &QAction::triggered, this, [this, d]() {
-            emit deactivateDeviceRequested(d.id);
-        });
+        auto *act = menu.addAction(Icons::icon(Icons::Glyph::Pause, t.textPrimary, 15, dpr), "Deactivate");
+        connect(act, &QAction::triggered, this, [this, d]() { emit deactivateDeviceRequested(d.id); });
     } else {
-        auto *act = menu.addAction("▶  Activate");
-        connect(act, &QAction::triggered, this, [this, d]() {
-            emit activateDeviceRequested(d.id);
-        });
+        auto *act = menu.addAction(Icons::icon(Icons::Glyph::Play, t.textPrimary, 15, dpr), "Activate");
+        connect(act, &QAction::triggered, this, [this, d]() { emit activateDeviceRequested(d.id); });
     }
 
     // Reconnect — only when device is currently connected
     if (online) {
-        auto *act = menu.addAction("↺  Reconnect");
-        connect(act, &QAction::triggered, this, [this, d]() {
-            emit reconnectDeviceRequested(d.serialNumber);
-        });
+        auto *act = menu.addAction(Icons::icon(Icons::Glyph::Retry, t.textPrimary, 15, dpr), "Reconnect");
+        connect(act, &QAction::triggered, this, [this, d]() { emit reconnectDeviceRequested(d.serialNumber); });
     }
 
     // Restart Device
-    auto *actRestart = menu.addAction("⟳  Restart Device");
-    connect(actRestart, &QAction::triggered, this, [this, d]() {
-        emit restartDeviceRequested(d.serialNumber);
-    });
+    auto *actRestart = menu.addAction(Icons::icon(Icons::Glyph::Restart, t.textPrimary, 15, dpr), "Restart Device");
+    connect(actRestart, &QAction::triggered, this, [this, d]() { emit restartDeviceRequested(d.serialNumber); });
 
     menu.addSeparator();
 
     // Biometric template operations
-    auto *actBackup = menu.addAction("↑  Backup Biometric Templates");
-    connect(actBackup, &QAction::triggered, this, [this, d]() {
-        emit backupTemplatesRequested(d.serialNumber);
-    });
+    auto *actBackup = menu.addAction(Icons::icon(Icons::Glyph::Upload, t.textPrimary, 15, dpr),
+                                      "Backup Biometric Templates");
+    connect(actBackup, &QAction::triggered, this, [this, d]() { emit backupTemplatesRequested(d.serialNumber); });
 
-    auto *actRestore = menu.addAction("↓  Restore Biometric Templates");
-    connect(actRestore, &QAction::triggered, this, [this, d]() {
-        emit restoreTemplatesRequested(d.serialNumber);
-    });
+    auto *actRestore = menu.addAction(Icons::icon(Icons::Glyph::Download, t.textPrimary, 15, dpr),
+                                       "Restore Biometric Templates");
+    connect(actRestore, &QAction::triggered, this, [this, d]() { emit restoreTemplatesRequested(d.serialNumber); });
 
     menu.addSeparator();
 
-    auto *actEdit = menu.addAction("✎  Edit");
+    auto *actEdit = menu.addAction(Icons::icon(Icons::Glyph::Edit, t.textPrimary, 15, dpr), "Edit");
     connect(actEdit, &QAction::triggered, this, &DevicesPage::onEditDevice);
 
-    auto *actDelete = menu.addAction("✕  Delete");
+    auto *actDelete = menu.addAction(Icons::icon(Icons::Glyph::Delete, t.danger, 15, dpr), "Delete");
     actDelete->setProperty("danger", true);
     connect(actDelete, &QAction::triggered, this, &DevicesPage::onRemoveDevice);
 

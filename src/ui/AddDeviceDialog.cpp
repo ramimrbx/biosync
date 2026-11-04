@@ -1,4 +1,5 @@
 #include "AddDeviceDialog.h"
+#include "ui/Theme.h"
 #include <QFormLayout>
 #include <QDialogButtonBox>
 #include <QVBoxLayout>
@@ -8,44 +9,54 @@
 #include <QFrame>
 #include <QPushButton>
 
+// Field/input styling matches ritems' Input.tsx: surface-muted background, bordered, rounded-xl,
+// accent border on focus.
 static QString inputCss() {
-    return "QLineEdit, QSpinBox {"
-           "  background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:8px;"
-           "  padding:8px 12px; font-size:13px; color:#111827;"
+    const ThemePalette &t = Theme::current();
+    return QString(
+           "QLineEdit, QSpinBox {"
+           "  background:%1; border:1.5px solid %2; border-radius:12px;"
+           "  padding:9px 13px; font-size:13px; color:%3;"
            "}"
-           "QLineEdit:focus, QSpinBox:focus { border-color:#8222E3; }"
-           "QLineEdit::placeholder { color:#9CA3AF; }"
-           "QTextEdit { background:#FFFFFF; border:1.5px solid #E5E7EB; border-radius:8px;"
-           "  padding:8px 12px; font-size:13px; color:#111827; }"
-           "QTextEdit:focus { border-color:#8222E3; }"
-           "QCheckBox { font-size:13px; color:#374151; spacing:8px; }"
+           "QLineEdit:focus, QSpinBox:focus { border-color:%4; background:%5; }"
+           "QLineEdit::placeholder { color:%6; }"
+           "QTextEdit { background:%1; border:1.5px solid %2; border-radius:12px;"
+           "  padding:9px 13px; font-size:13px; color:%3; }"
+           "QTextEdit:focus { border-color:%4; background:%5; }"
+           "QCheckBox { font-size:13px; color:%7; spacing:8px; }"
            "QCheckBox::indicator { width:18px; height:18px; border-radius:5px;"
-           "  border:1.5px solid #D1D5DB; background:#FFFFFF; }"
-           "QCheckBox::indicator:checked { background:#8222E3; border-color:#8222E3; }"
-           "QCheckBox::indicator:checked:hover { background:#6A1AB8; }";
+           "  border:1.5px solid %2; background:%5; }"
+           "QCheckBox::indicator:checked { background:%4; border-color:%4; }"
+           "QCheckBox::indicator:checked:hover { background:%8; }")
+        .arg(t.headerBg.name(), t.border.name(), t.textPrimary.name(), t.accent.name(),
+             t.cardBg.name(), t.placeholder.name(), t.textSecondary.name(), t.accentHover.name());
 }
 
 AddDeviceDialog::AddDeviceDialog(QWidget *parent, const Device &device)
     : QDialog(parent), m_editId(device.id)
 {
+    const ThemePalette &t = Theme::current();
     setWindowTitle(device.id == 0 ? "Add New Device" : "Edit Device");
     setMinimumWidth(460);
     setStyleSheet(
-        "QDialog { background:#F4F6FB; }"
+        QString("QDialog { background:%1; }").arg(t.pageBg.name())
         + inputCss());
 
-    // ── Title bar area ────────────────────────────────────────────────────────
+    // ── Header ───────────────────────────────────────────────────────────────
+    // Mirrors ritems' Modal.tsx "default" header: a soft accent wash with an accent-colored
+    // title, not a solid brand-color banner.
     auto *titleBar = new QWidget();
-    titleBar->setStyleSheet(
-        "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #8222E3,stop:1 #A855F7);"
-        "border-radius:0px;");
+    titleBar->setAttribute(Qt::WA_StyledBackground, true);
+    titleBar->setStyleSheet(QString(
+        "background:%1; border-bottom:1px solid %2;")
+        .arg(t.accentSoft(), t.border.name()));
     titleBar->setFixedHeight(58);
     auto *tbLayout = new QHBoxLayout(titleBar);
     tbLayout->setContentsMargins(20, 0, 20, 0);
     auto *tbTitle = new QLabel(device.id == 0 ? "Add New Device" : "Edit Device");
-    tbTitle->setStyleSheet("color:#FFFFFF; font-size:16px; font-weight:700;");
+    tbTitle->setStyleSheet(QString("color:%1; font-size:16px; font-weight:700;").arg(t.accent.name()));
     auto *tbSub = new QLabel(device.id == 0 ? "Register a ZKTeco device" : "Update device configuration");
-    tbSub->setStyleSheet("color:rgba(255,255,255,0.7); font-size:11px;");
+    tbSub->setStyleSheet(QString("color:%1; font-size:11px;").arg(t.textSecondary.name()));
     auto *tbTextCol = new QVBoxLayout();
     tbTextCol->setSpacing(2);
     tbTextCol->addWidget(tbTitle);
@@ -70,9 +81,11 @@ AddDeviceDialog::AddDeviceDialog(QWidget *parent, const Device &device)
     m_ip->setPlaceholderText("e.g. 192.168.1.201");
     m_location->setPlaceholderText("e.g. Ground Floor, Gate 1");
 
-    auto mkLabel = [](const QString &text, bool required = false) {
-        auto *lbl = new QLabel(required ? text + " <span style='color:#EF4444'>*</span>" : text);
-        lbl->setStyleSheet("font-size:12px; color:#374151; font-weight:500;");
+    auto mkLabel = [&t](const QString &text, bool required = false) {
+        auto *lbl = new QLabel(required
+            ? text + QString(" <span style='color:%1'>*</span>").arg(t.danger.name())
+            : text);
+        lbl->setStyleSheet(QString("font-size:12px; color:%1; font-weight:500;").arg(t.textSecondary.name()));
         lbl->setTextFormat(Qt::RichText);
         return lbl;
     };
@@ -123,20 +136,22 @@ AddDeviceDialog::AddDeviceDialog(QWidget *parent, const Device &device)
     // ── Divider ──────────────────────────────────────────────────────────────
     auto *divider = new QFrame();
     divider->setFrameShape(QFrame::HLine);
-    divider->setStyleSheet("color:#E5E7EB;");
+    divider->setStyleSheet(QString("color:%1;").arg(t.border.name()));
 
     // ── Buttons ───────────────────────────────────────────────────────────────
     auto *btnCancel = new QPushButton("Cancel");
     auto *btnOk     = new QPushButton(device.id == 0 ? "Add Device" : "Save Changes");
-    btnCancel->setStyleSheet(
-        "QPushButton { background:#FFFFFF; color:#374151; border:1.5px solid #E5E7EB;"
-        "  padding:8px 20px; border-radius:8px; font-weight:500; }"
-        "QPushButton:hover { background:#F9F5FF; border-color:#8222E3; color:#8222E3; }");
-    btnOk->setStyleSheet(
-        "QPushButton { background:#8222E3; color:#FFFFFF; border:none;"
-        "  padding:9px 24px; border-radius:8px; font-weight:700; font-size:13px; }"
-        "QPushButton:hover   { background:#6A1AB8; }"
-        "QPushButton:pressed { background:#5a14a0; }");
+    btnCancel->setStyleSheet(QString(
+        "QPushButton { background:%1; color:%2; border:1.5px solid %3;"
+        "  padding:9px 20px; border-radius:12px; font-weight:600; }"
+        "QPushButton:hover { background:%4; border-color:%5; color:%5; }")
+        .arg(t.cardBg.name(), t.textSecondary.name(), t.border.name(), t.accentSoft(), t.accent.name()));
+    btnOk->setStyleSheet(QString(
+        "QPushButton { background:%1; color:%2; border:none;"
+        "  padding:10px 24px; border-radius:12px; font-weight:700; font-size:13px; }"
+        "QPushButton:hover   { background:%3; }"
+        "QPushButton:pressed { background:%4; }")
+        .arg(t.accent.name(), t.onAccent.name(), t.accentHover.name(), t.accentPressed.name()));
     btnCancel->setCursor(Qt::PointingHandCursor);
     btnOk->setCursor(Qt::PointingHandCursor);
 
