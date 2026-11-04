@@ -12,6 +12,8 @@
 #include "HeadlessRunner.h"
 #include "ui/Theme.h"
 #include "ui/SplashScreen.h"
+#include "service/Autostart.h"
+#include <QSettings>
 #include <QFontDatabase>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -167,25 +169,41 @@ int main(int argc, char *argv[]) {
     // wires live re-theming if the user flips Windows' light/dark setting while BioSync runs.
     Theme::instance().init();
 
-    // Splash: shown on every GUI launch (including a silent autostart run) while MainWindow does
-    // its real startup work (DB open, ADMS server bind), then fades into the main window/tray.
-    auto *splash = new SplashScreen();
-    splash->show();
-    app.processEvents();
+    // Splash: shown when the user opens BioSync, while MainWindow does its startup work, then fades
+    // into the main window. NOT shown for the silent sign-in launch (--autostart): that one goes
+    // straight to the system tray with nothing on screen.
+    SplashScreen *splash = nullptr;
+    if (!autostart) {
+        splash = new SplashScreen();
+        splash->show();
+        app.processEvents();
+    }
 
     QElapsedTimer startupTimer;
     startupTimer.start();
 
     MainWindow window;
 
-    constexpr int kMinSplashMs = 1800;
-    const int remaining = kMinSplashMs - int(startupTimer.elapsed());
-    if (remaining > 0) {
-        QEventLoop waitLoop;
-        QTimer::singleShot(remaining, &waitLoop, &QEventLoop::quit);
-        waitLoop.exec();
+    if (splash) {
+        constexpr int kMinSplashMs = 1800;
+        const int remaining = kMinSplashMs - int(startupTimer.elapsed());
+        if (remaining > 0) {
+            QEventLoop waitLoop;
+            QTimer::singleShot(remaining, &waitLoop, &QEventLoop::quit);
+            waitLoop.exec();
+        }
+        splash->fadeOutAndClose();
     }
-    splash->fadeOutAndClose();
+
+    // Start in the system tray at every sign-in by default. Applied once per user (the user can
+    // still switch it off in Settings, and that choice is then kept).
+    {
+        QSettings prefs(QStringLiteral("Right iTech"), QStringLiteral("BioSync"));
+        if (!prefs.value(QStringLiteral("trayAtLoginDefaultApplied"), false).toBool()) {
+            Autostart::setEnabled(true);
+            prefs.setValue(QStringLiteral("trayAtLoginDefaultApplied"), true);
+        }
+    }
 
     if (!autostart) window.show();
     QObject::connect(instanceServer, &QLocalServer::newConnection, &window, [&window, instanceServer]() {

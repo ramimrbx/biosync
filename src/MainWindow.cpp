@@ -755,9 +755,7 @@ void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {
 
 void MainWindow::closeEvent(QCloseEvent *event) {
     if (m_trayIcon->isVisible()) {
-        hide();
-        m_trayIcon->showMessage("BioSync", "Running in background. Double-click tray icon to restore.",
-                                QSystemTrayIcon::Information, 2000);
+        hide();   // keep running quietly in the system tray (no notification)
         event->ignore();
     } else {
         event->accept();

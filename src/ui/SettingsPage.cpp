@@ -114,7 +114,8 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     serverControlLayout->addWidget(hint("Start/Stop the ADMS listener. Restart applies new port settings immediately."));
 
     // Attendance always runs in the background service at boot; this only opens the window.
-    m_autoStart = new QCheckBox("  Open the BioSync window when I sign in");
+    // Attendance always runs in the background service from power-on; this only adds the tray icon.
+    m_autoStart = new QCheckBox("  Start BioSync in the system tray when I sign in");
     m_autoStart->setCursor(Qt::PointingHandCursor);
     serverControlLayout->addWidget(m_autoStart);
     serverControlLayout->addWidget(hint("So the attendance server is running whenever this computer is on, even after a reboot."));

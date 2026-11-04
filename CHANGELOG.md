@@ -3,6 +3,14 @@
 All notable changes to BioSync are recorded here. Installing a newer version over an older one
 upgrades in place — your configuration, devices and pending records are kept.
 
+## 1.4.2 — 2026-11-04
+- **Starts in the system tray at sign-in** — BioSync now starts automatically when you sign in to
+  the computer, straight into the system tray: no window and no splash screen. (Attendance itself
+  runs in the background service from power-on, even before anyone signs in.) You can switch this
+  off in Settings → "Start BioSync in the system tray when I sign in".
+- **No more "Running in background" pop-up** when you close the window — it just goes quietly to
+  the system tray.
+
 ## 1.4.1 — 2026-11-04
 Everything from 1.3.2 (new design, splash screen, light/dark theme, icons) plus:
 - **No more "Attendance server failed to start on port 8085 — address already in use".** The

@@ -61,7 +61,7 @@ bool Autostart::setEnabled(bool enable) {
         out << "[Desktop Entry]\n"
             << "Type=Application\n"
             << "Name=BioSync\n"
-            << "Exec=\"" << appPath() << "\"\n"
+            << "Exec=\"" << appPath() << "\" --autostart\n"
             << "X-GNOME-Autostart-enabled=true\n"
             << "Terminal=false\n";
         f.close();
@@ -72,7 +72,15 @@ bool Autostart::setEnabled(bool enable) {
 }
 
 bool Autostart::isEnabled() {
-    return QFile::exists(desktopFilePath());
+    QFile f(desktopFilePath());
+    if (!f.exists()) return false;
+    // Upgrade path: an entry written before --autostart opened the window at sign-in; rewrite it so
+    // it starts in the tray instead.
+    if (f.open(QIODevice::ReadOnly) && !f.readAll().contains("--autostart")) {
+        f.close();
+        setEnabled(true);
+    }
+    return true;
 }
 
 #endif
