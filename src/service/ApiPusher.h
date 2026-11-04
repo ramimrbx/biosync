@@ -51,6 +51,8 @@ private:
     bool m_isOnline = false;
     bool m_pushing = false;
     bool m_autoPush = true;
+    qint64 m_backoffMs = 0;        // current retry delay after a failed push (0 = none)
+    qint64 m_nextAttemptMs = 0;    // don't push before this time (ms since epoch)
 
     void checkConnectivity();
     void doPush();

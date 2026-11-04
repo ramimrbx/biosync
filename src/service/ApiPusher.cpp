@@ -8,6 +8,7 @@
 #include <QMessageAuthenticationCode>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <memory>
 
 // The app-signing secret is baked in at build time (-DBIOSYNC_APP_SECRET=...), never stored in
 // config or the repo. Empty in an unsigned/dev build.
@@ -90,26 +91,48 @@ void ApiPusher::onConnectivityCheck(QNetworkReply *reply) {
     }
 }
 
+// A push that fails is NOT a lost punch: records stay 'pending' and are retried with backoff
+// (15s → 30s → 1m → … → 5m) until RiTEMS accepts them. Only a request RiTEMS rejects as invalid
+// (HTTP 400/422 — retrying the same data can never succeed) is marked 'failed'. Re-sending is
+// safe: RiTEMS de-duplicates punches.
+static constexpr int BATCH_SIZE      = 500;     // records per request
+static constexpr int CYCLE_LIMIT     = 5000;    // records per push cycle
+static constexpr qint64 MAX_BACKOFF_MS = 5 * 60 * 1000;
+
+static bool isPermanentRejection(int httpStatus) {
+    return httpStatus == 400 || httpStatus == 422;
+}
+
 void ApiPusher::doPush() {
     if (m_pushing || m_apiUrl.isEmpty() || m_apiKey.isEmpty() || m_institutionId <= 0) return;
 
-    // No limit — fetch every pending record
-    QList<AttendanceRecord> pending = m_db->getPendingRecords();
+    // Back off after a failed attempt instead of hammering a server that is down.
+    if (QDateTime::currentMSecsSinceEpoch() < m_nextAttemptMs) return;
+
+    QList<AttendanceRecord> pending = m_db->getPendingRecords(CYCLE_LIMIT);
     if (pending.isEmpty()) return;
 
     m_pushing = true;
 
-    // Group by device serial
+    // Group by device serial, then split into batches so one huge backlog never becomes one
+    // huge request that times out.
     QHash<QString, QList<AttendanceRecord>> byDevice;
     for (const auto &r : pending)
         byDevice[r.deviceSerial].append(r);
 
-    int requestsInFlight = byDevice.size();
-    auto *counter = new int(requestsInFlight);   // heap-allocated so lambda can share it
+    QList<QList<AttendanceRecord>> batches;
+    for (auto it = byDevice.cbegin(); it != byDevice.cend(); ++it)
+        for (qsizetype i = 0; i < it.value().size(); i += BATCH_SIZE)
+            batches.append(it.value().mid(i, BATCH_SIZE));
 
-    for (auto it = byDevice.cbegin(); it != byDevice.cend(); ++it) {
+    struct Cycle { int inFlight = 0; bool anyTransientFailure = false; };
+    auto cycle = std::make_shared<Cycle>();
+    cycle->inFlight = batches.size();
+    const bool mayHaveMore = pending.size() >= CYCLE_LIMIT;
+
+    for (const auto &batch : batches) {
         QJsonArray recordsArr;
-        for (const auto &r : it.value()) {
+        for (const auto &r : batch) {
             QJsonObject obj;
             obj["userPin"]    = r.userPin;
             obj["punchTime"]  = r.punchTime.toString("yyyy-MM-dd HH:mm:ss");
@@ -120,9 +143,9 @@ void ApiPusher::doPush() {
         }
 
         QJsonObject payload;
-        payload["deviceSerial"]  = it.key();
-        if (!it.value().first().deviceName.isEmpty())
-            payload["deviceName"] = it.value().first().deviceName;
+        payload["deviceSerial"]  = batch.first().deviceSerial;
+        if (!batch.first().deviceName.isEmpty())
+            payload["deviceName"] = batch.first().deviceName;
         payload["institutionId"] = static_cast<qint64>(m_institutionId);
         payload["records"]       = recordsArr;
 
@@ -132,37 +155,53 @@ void ApiPusher::doPush() {
         req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
         req.setRawHeader("X-BioSync-Key", m_apiKey.toUtf8());
         // Prove this push came from a genuine BioSync build: HMAC-SHA256 over "<timestamp>.<body>"
-        // with the app secret baked into this binary (never in config or on the wire). RiTEMS rejects
-        // any push whose signature it can't verify, so a leaked API key alone cannot forge attendance.
+        // with the app secret baked into this binary (never in config or on the wire).
         signRequest(req, body);
-        req.setTransferTimeout(60000);   // generous timeout for large payloads
+        req.setTransferTimeout(60000);
 
         QList<int> batchIds;
-        for (const auto &r : it.value()) batchIds.append(r.id);
+        for (const auto &r : batch) batchIds.append(r.id);
 
         QNetworkReply *reply = m_nam->post(req, body);
 
-        connect(reply, &QNetworkReply::finished, this, [this, reply, batchIds, counter]() {
-            int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            bool ok = (reply->error() == QNetworkReply::NoError && httpStatus == 200);
-            for (int id : batchIds) {
-                m_db->updateSyncStatus(id,
-                    ok ? SyncStatus::Synced : SyncStatus::Failed,
-                    ok ? QString() : reply->errorString());
+        connect(reply, &QNetworkReply::finished, this, [this, reply, batchIds, cycle, mayHaveMore]() {
+            const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const bool ok = (reply->error() == QNetworkReply::NoError && httpStatus == 200);
+            QString error = reply->errorString();
+            if (!ok) {
+                // Prefer RiTEMS' own message (e.g. "Invalid BioSync API key.") when it sent one.
+                const QString serverMsg = QJsonDocument::fromJson(reply->readAll()).object()
+                                              .value("message").toString();
+                if (!serverMsg.isEmpty()) error = serverMsg;
             }
+
             if (ok) {
+                for (int id : batchIds) m_db->updateSyncStatus(id, SyncStatus::Synced);
                 emit recordsSynced(batchIds.size());
                 emit logMessage(QString("Synced %1 attendance record(s).").arg(batchIds.size()));
+            } else if (isPermanentRejection(httpStatus)) {
+                for (int id : batchIds) m_db->updateSyncStatus(id, SyncStatus::Failed, error);
+                emit logMessage(QString("RiTEMS rejected %1 record(s) as invalid (HTTP %2): %3 — not retried.")
+                                    .arg(batchIds.size()).arg(httpStatus).arg(error));
             } else {
-                emit logMessage(QString("Failed to sync %1 record(s): %2 (HTTP %3)")
-                    .arg(batchIds.size()).arg(reply->errorString()).arg(httpStatus));
+                for (int id : batchIds) m_db->recordPushError(id, error);
+                cycle->anyTransientFailure = true;
+                emit logMessage(QString("Could not sync %1 record(s) (HTTP %2): %3 — kept pending, will retry.")
+                                    .arg(batchIds.size()).arg(httpStatus).arg(error));
             }
             reply->deleteLater();
 
-            // When last in-flight request finishes, unlock pushing
-            if (--(*counter) == 0) {
-                delete counter;
+            if (--cycle->inFlight == 0) {
                 m_pushing = false;
+                if (cycle->anyTransientFailure) {
+                    m_backoffMs = m_backoffMs == 0 ? 15000 : qMin(m_backoffMs * 2, MAX_BACKOFF_MS);
+                    m_nextAttemptMs = QDateTime::currentMSecsSinceEpoch() + m_backoffMs;
+                    emit logMessage(QString("Next sync attempt in %1s.").arg(m_backoffMs / 1000));
+                } else {
+                    m_backoffMs = 0;
+                    m_nextAttemptMs = 0;
+                    if (mayHaveMore) QTimer::singleShot(0, this, &ApiPusher::doPush);   // drain backlog
+                }
                 emitStatus();
             }
         });

@@ -48,6 +48,8 @@ public:
     // Attendance
     int addAttendanceRecord(const AttendanceRecord &record);
     bool updateSyncStatus(int id, SyncStatus status, const QString &error = {});
+    // A push attempt failed for a temporary reason: keep the record pending, remember why.
+    void recordPushError(int id, const QString &error);
     QList<AttendanceRecord> getPendingRecords(int limit = 0) const;   // 0 = unlimited
     QList<AttendanceRecord> getRecentRecords(int limit = 200) const;
     QList<AttendanceRecord> getRecordsByDevice(const QString &serial, int limit = 200) const;

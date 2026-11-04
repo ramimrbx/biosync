@@ -136,6 +136,14 @@ void Database::createTables() {
 
     if (q.lastError().isValid())
         qWarning() << "Table creation error:" << q.lastError().text();
+
+    // Before 1.3.0 any failed push (even a brief network drop) marked records 'failed' and they
+    // were never retried. Put them back in the queue once; RiTEMS de-duplicates, so it's safe.
+    QSqlQuery m(m_db);
+    if (m.exec("SELECT value FROM settings WHERE key='migrated_failed_requeue'") && !m.next()) {
+        m.exec("UPDATE attendance_records SET sync_status='pending' WHERE sync_status='failed'");
+        m.exec("INSERT OR REPLACE INTO settings(key, value) VALUES('migrated_failed_requeue', '1')");
+    }
 }
 
 QString Database::getSetting(const QString &key, const QString &defaultValue) const {
@@ -286,6 +294,14 @@ bool Database::updateSyncStatus(int id, SyncStatus status, const QString &error)
     q.addBindValue(error.isEmpty() ? QVariant() : QVariant(error));
     q.addBindValue(id);
     return q.exec();
+}
+
+void Database::recordPushError(int id, const QString &error) {
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE attendance_records SET error_message=? WHERE id=? AND sync_status='pending'");
+    q.addBindValue(error);
+    q.addBindValue(id);
+    q.exec();
 }
 
 QList<AttendanceRecord> Database::getPendingRecords(int limit) const {
