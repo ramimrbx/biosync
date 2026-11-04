@@ -3,6 +3,12 @@
 All notable changes to BioSync are recorded here. Installing a newer version over an older one
 upgrades in place — your configuration, devices and pending records are kept.
 
+## 1.5.1 — 2026-11-04
+- **Resizable columns.** Drag the divider between column titles to resize a column, like in a
+  spreadsheet, or double-click it to fit the contents. Widths are remembered and never reset by
+  themselves. Right-click the titles to fit all columns or reset the widths. Works on the
+  Attendance, Devices and network-scan tables.
+
 ## 1.5.0 — 2026-11-04
 - **RitOS devices supported.** Our own BioSync attendance hardware (RitOS firmware) now works with
   BioSync just like a ZKTeco device. Point the device's Server setting at this computer and the
@@ -22,7 +28,6 @@ upgrades in place — your configuration, devices and pending records are kept.
 - **Names in the attendance table.** A new Name column shows who punched, for RitOS devices (sent
   with every punch) and ZKTeco devices (BioSync reads each device's user list). Punches answered on
   the device show the answer, for example "Exit · Office work", with the reason as a tooltip.
-
 ## 1.4.2 — 2026-11-04
 - **Starts in the system tray at sign-in** — BioSync now starts automatically when you sign in to
   the computer, straight into the system tray: no window and no splash screen. (Attendance itself

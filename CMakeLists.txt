@@ -35,6 +35,7 @@ set(SOURCES
         src/ui/BiometricBackupDialog.cpp
         src/ui/Theme.cpp
         src/ui/Icons.cpp
+        src/ui/ColumnWidths.cpp
         src/ui/SplashScreen.cpp
 )
 
@@ -63,6 +64,7 @@ set(HEADERS
         src/model/BiometricTemplate.h
         src/ui/Theme.h
         src/ui/Icons.h
+        src/ui/ColumnWidths.h
         src/ui/SplashScreen.h
 )
 

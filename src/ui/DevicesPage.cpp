@@ -1,4 +1,5 @@
 #include "DevicesPage.h"
+#include "ColumnWidths.h"
 #include "AddDeviceDialog.h"
 #include "Theme.h"
 #include "Icons.h"
@@ -79,11 +80,8 @@ DevicesPage::DevicesPage(Database *db, QWidget *parent)
     m_table = new QTableWidget(0, ColCount);
     m_table->setHorizontalHeaderLabels(
         {"Status","Name","Serial","Device IP","Socket IP","Port","Location","Last Seen"});
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_table->horizontalHeader()->setSectionResizeMode(ColStatus, QHeaderView::Fixed);
-    m_table->horizontalHeader()->setSectionResizeMode(ColPort,   QHeaderView::Fixed);
-    m_table->setColumnWidth(ColStatus, 90);
-    m_table->setColumnWidth(ColPort,   70);
+    // Status, Name, Serial, Device IP, Socket IP, Port, Location (Last Seen fills the rest)
+    ColumnWidths::makeResizable(m_table, "devices", {90, 180, 150, 120, 120, 70, 140});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);

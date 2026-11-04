@@ -1,4 +1,5 @@
 #include "DeviceDiscoveryDialog.h"
+#include "ColumnWidths.h"
 #include "ui/Theme.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -58,9 +59,8 @@ DeviceDiscoveryDialog::DeviceDiscoveryDialog(const QSet<QString> &existingSerial
     // ── Table ─────────────────────────────────────────────────────────────────
     m_table = new QTableWidget(0, 5);
     m_table->setHorizontalHeaderLabels({"", "Serial Number", "IP Address", "Model", "Status"});
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Fixed);
-    m_table->setColumnWidth(0, 40);
+    // Check box, Serial Number, IP Address, Model (Status fills the rest)
+    ColumnWidths::makeResizable(m_table, "discovery", {40, 160, 130, 150});
     m_table->setSelectionMode(QAbstractItemView::NoSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(false);

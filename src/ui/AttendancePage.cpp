@@ -1,4 +1,5 @@
 #include "AttendancePage.h"
+#include "ColumnWidths.h"
 #include "Theme.h"
 #include "Icons.h"
 #include <QVBoxLayout>
@@ -47,13 +48,8 @@ AttendancePage::AttendancePage(Database *db, QWidget *parent)
     m_table = new QTableWidget(0, 9);
     m_table->setHorizontalHeaderLabels(
         {"Device", "User PIN", "Name", "Punch Time", "Direction", "Verify", "Sync", "Work Code", "Device Name"});
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    m_table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Fixed);
-    m_table->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Fixed);
-    m_table->setColumnWidth(4, 130);
-    m_table->setColumnWidth(5, 90);
-    m_table->setColumnWidth(6, 100);
+    // Device, PIN, Name, Punch Time, Direction, Verify, Sync, Work Code (Device Name fills the rest)
+    ColumnWidths::makeResizable(m_table, "attendance", {150, 90, 190, 170, 140, 90, 110, 100});
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(false);
