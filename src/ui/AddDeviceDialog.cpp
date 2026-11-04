@@ -55,7 +55,7 @@ AddDeviceDialog::AddDeviceDialog(QWidget *parent, const Device &device)
     tbLayout->setContentsMargins(20, 0, 20, 0);
     auto *tbTitle = new QLabel(device.id == 0 ? "Add New Device" : "Edit Device");
     tbTitle->setStyleSheet(QString("color:%1; font-size:16px; font-weight:700;").arg(t.accent.name()));
-    auto *tbSub = new QLabel(device.id == 0 ? "Register a ZKTeco device" : "Update device configuration");
+    auto *tbSub = new QLabel(device.id == 0 ? "Register a ZKTeco or RitOS device" : "Update device configuration");
     tbSub->setStyleSheet(QString("color:%1; font-size:11px;").arg(t.textSecondary.name()));
     auto *tbTextCol = new QVBoxLayout();
     tbTextCol->setSpacing(2);

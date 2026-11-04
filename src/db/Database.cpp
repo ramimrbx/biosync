@@ -1,6 +1,7 @@
 #include "Database.h"
 #include <QSqlQuery>
 #include <QSqlError>
+#include <QSqlRecord>
 #include <QVariant>
 #include <QDebug>
 #include <QDir>
@@ -137,6 +138,41 @@ void Database::createTables() {
     if (q.lastError().isValid())
         qWarning() << "Table creation error:" << q.lastError().text();
 
+    // Names of the people enrolled on each device, so the attendance table can show who punched.
+    q.exec(R"(
+        CREATE TABLE IF NOT EXISTS device_users (
+            device_serial TEXT NOT NULL,
+            user_pin TEXT NOT NULL,
+            name TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            PRIMARY KEY(device_serial, user_pin)
+        )
+    )");
+
+    // 1.5.0: user name and the interactive answer given on the device. ADD COLUMN fails harmlessly
+    // when the column already exists.
+    for (const char *column : {"user_name TEXT", "answered INTEGER NOT NULL DEFAULT 0", "answer_direction TEXT",
+                               "answer_exit_type TEXT", "answer_reason TEXT",
+                               "answer_mistake INTEGER NOT NULL DEFAULT 0"}) {
+        QSqlQuery alter(m_db);
+        alter.exec(QString("ALTER TABLE attendance_records ADD COLUMN %1").arg(column));
+    }
+
+    // Punches stored before 1.5.0 kept the RitOS punch message, which carries the name: fill the
+    // name in from it, and remember each device's names for its other rows.
+    QSqlQuery names(m_db);
+    names.exec(R"(
+        UPDATE attendance_records
+        SET user_name = json_extract(raw_data, '$.name')
+        WHERE user_name IS NULL AND raw_data LIKE '{%' AND json_valid(raw_data)
+          AND COALESCE(json_extract(raw_data, '$.name'), '') NOT IN ('', 'Deleted user')
+    )");
+    names.exec(R"(
+        INSERT OR IGNORE INTO device_users(device_serial, user_pin, name)
+        SELECT device_serial, user_pin, user_name FROM attendance_records
+        WHERE user_name IS NOT NULL GROUP BY device_serial, user_pin
+    )");
+
     // Before 1.3.0 any failed push (even a brief network drop) marked records 'failed' and they
     // were never retried. Put them back in the queue once; RiTEMS de-duplicates, so it's safe.
     QSqlQuery m(m_db);
@@ -259,16 +295,34 @@ static AttendanceRecord rowToRecord(QSqlQuery &q) {
     if (ss == "synced") r.syncStatus = SyncStatus::Synced;
     else if (ss == "failed") r.syncStatus = SyncStatus::Failed;
     else r.syncStatus = SyncStatus::Pending;
+
+    // The name stored with the punch, else the one the device reported for this PIN (see
+    // RECORD_SELECT, which joins device_users as known_name).
+    r.userName = q.value("user_name").toString();
+    const int known = q.record().indexOf("known_name");
+    if (r.userName.isEmpty() && known >= 0) r.userName = q.value(known).toString();
+
+    r.answered        = q.value("answered").toInt() != 0;
+    r.answerDirection = q.value("answer_direction").toString();
+    r.answerExitType  = q.value("answer_exit_type").toString();
+    r.answerReason    = q.value("answer_reason").toString();
+    r.answerMistake   = q.value("answer_mistake").toInt() != 0;
     return r;
 }
+
+// Attendance rows with the device's name for the person, when the punch itself carried none.
+static const char *RECORD_SELECT =
+    "SELECT a.*, u.name AS known_name FROM attendance_records a "
+    "LEFT JOIN device_users u ON u.device_serial = a.device_serial AND u.user_pin = a.user_pin ";
 
 int Database::addAttendanceRecord(const AttendanceRecord &record) {
     QSqlQuery q(m_db);
     q.prepare(R"(
         INSERT OR IGNORE INTO attendance_records
         (device_serial, device_name, user_pin, punch_time, verify_type, punch_status,
-         work_code, raw_data, sync_status)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+         work_code, raw_data, sync_status, user_name, answered, answer_direction, answer_exit_type,
+         answer_reason, answer_mistake)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
     )");
     q.addBindValue(record.deviceSerial);
     q.addBindValue(record.deviceName);
@@ -278,7 +332,17 @@ int Database::addAttendanceRecord(const AttendanceRecord &record) {
     q.addBindValue(record.punchStatus);
     q.addBindValue(record.workCode);
     q.addBindValue(record.rawData);
-    if (q.exec()) return q.lastInsertId().toInt();
+    q.addBindValue(record.userName.isEmpty() ? QVariant() : QVariant(record.userName));
+    q.addBindValue(record.answered ? 1 : 0);
+    q.addBindValue(record.answered ? QVariant(record.answerDirection) : QVariant());
+    q.addBindValue(record.answered && !record.answerExitType.isEmpty() ? QVariant(record.answerExitType) : QVariant());
+    q.addBindValue(record.answered && !record.answerReason.isEmpty() ? QVariant(record.answerReason) : QVariant());
+    q.addBindValue(record.answerMistake ? 1 : 0);
+    if (q.exec()) {
+        // A device that sends names keeps device_users current, so older rows show them too.
+        if (!record.userName.isEmpty()) setDeviceUserName(record.deviceSerial, record.userPin, record.userName);
+        return q.lastInsertId().toInt();
+    }
     return -1;
 }
 
@@ -308,10 +372,10 @@ QList<AttendanceRecord> Database::getPendingRecords(int limit) const {
     QList<AttendanceRecord> list;
     QSqlQuery q(m_db);
     if (limit > 0) {
-        q.prepare("SELECT * FROM attendance_records WHERE sync_status='pending' ORDER BY punch_time LIMIT ?");
+        q.prepare(QString(RECORD_SELECT) + "WHERE a.sync_status='pending' ORDER BY a.punch_time LIMIT ?");
         q.addBindValue(limit);
     } else {
-        q.prepare("SELECT * FROM attendance_records WHERE sync_status='pending' ORDER BY punch_time");
+        q.prepare(QString(RECORD_SELECT) + "WHERE a.sync_status='pending' ORDER BY a.punch_time");
     }
     if (q.exec()) while (q.next()) list.append(rowToRecord(q));
     return list;
@@ -320,7 +384,7 @@ QList<AttendanceRecord> Database::getPendingRecords(int limit) const {
 QList<AttendanceRecord> Database::getRecentRecords(int limit) const {
     QList<AttendanceRecord> list;
     QSqlQuery q(m_db);
-    q.prepare("SELECT * FROM attendance_records ORDER BY punch_time DESC LIMIT ?");
+    q.prepare(QString(RECORD_SELECT) + "ORDER BY a.punch_time DESC LIMIT ?");
     q.addBindValue(limit);
     if (q.exec()) while (q.next()) list.append(rowToRecord(q));
     return list;
@@ -329,7 +393,7 @@ QList<AttendanceRecord> Database::getRecentRecords(int limit) const {
 QList<AttendanceRecord> Database::getRecordsByDevice(const QString &serial, int limit) const {
     QList<AttendanceRecord> list;
     QSqlQuery q(m_db);
-    q.prepare("SELECT * FROM attendance_records WHERE device_serial=? ORDER BY punch_time DESC LIMIT ?");
+    q.prepare(QString(RECORD_SELECT) + "WHERE a.device_serial=? ORDER BY a.punch_time DESC LIMIT ?");
     q.addBindValue(serial);
     q.addBindValue(limit);
     if (q.exec()) while (q.next()) list.append(rowToRecord(q));
@@ -517,4 +581,26 @@ void Database::setCommandStatus(int id, const QString &status, const QString &re
     q.addBindValue(result);
     q.addBindValue(id);
     q.exec();
+}
+
+// ── Device users (names) ─────────────────────────────────────────────────────
+
+void Database::setDeviceUserName(const QString &serial, const QString &pin, const QString &name) {
+    if (serial.isEmpty() || pin.isEmpty() || name.trimmed().isEmpty()) return;
+    QSqlQuery q(m_db);
+    q.prepare("INSERT INTO device_users(device_serial, user_pin, name, updated_at) "
+              "VALUES(?, ?, ?, datetime('now', 'localtime')) "
+              "ON CONFLICT(device_serial, user_pin) DO UPDATE SET name=excluded.name, updated_at=excluded.updated_at "
+              "WHERE device_users.name <> excluded.name");
+    q.addBindValue(serial);
+    q.addBindValue(pin);
+    q.addBindValue(name.trimmed());
+    q.exec();
+}
+
+int Database::setDeviceUserNames(const QString &serial, const QHash<QString, QString> &names) {
+    m_db.transaction();
+    for (auto it = names.cbegin(); it != names.cend(); ++it) setDeviceUserName(serial, it.key(), it.value());
+    m_db.commit();
+    return names.size();
 }

@@ -44,16 +44,16 @@ AttendancePage::AttendancePage(Database *db, QWidget *parent)
     hdrLayout->addWidget(m_btnRetry);
 
     // ── Table ─────────────────────────────────────────────────────────────────
-    m_table = new QTableWidget(0, 8);
+    m_table = new QTableWidget(0, 9);
     m_table->setHorizontalHeaderLabels(
-        {"Device", "User PIN", "Punch Time", "Direction", "Verify", "Sync", "Work Code", "Device Name"});
+        {"Device", "User PIN", "Name", "Punch Time", "Direction", "Verify", "Sync", "Work Code", "Device Name"});
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
     m_table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Fixed);
-    m_table->setColumnWidth(3, 90);
-    m_table->setColumnWidth(4, 90);
-    m_table->setColumnWidth(5, 100);
+    m_table->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Fixed);
+    m_table->setColumnWidth(4, 130);
+    m_table->setColumnWidth(5, 90);
+    m_table->setColumnWidth(6, 100);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(false);
@@ -135,17 +135,21 @@ void AttendancePage::addRowToTable(int row, const AttendanceRecord &r) {
     deviceItem->setData(Qt::UserRole + 1, static_cast<int>(r.syncStatus));
     m_table->setItem(row, 0, deviceItem);
     m_table->setItem(row, 1, item(r.userPin));
-    m_table->setItem(row, 2, item(r.punchTime.toString("yyyy-MM-dd  hh:mm:ss")));
+    m_table->setItem(row, 2, item(r.userName.isEmpty() ? "—" : r.userName));
+    m_table->setItem(row, 3, item(r.punchTime.toString("yyyy-MM-dd  hh:mm:ss")));
 
     // Direction pill (cell widget) — an opaque background of its own so a selected row's
     // highlight tint never peeks through the layout margins around the pill.
-    bool isIn = (r.punchStatus == 0 || r.punchStatus == 3 || r.punchStatus == 4);
+    // A punch answered on the device (interactive attendance) shows that answer instead.
+    bool isIn = r.answered ? (r.answerDirection != "EXIT")
+                           : (r.punchStatus == 0 || r.punchStatus == 3 || r.punchStatus == 4);
     auto *dirWidget = new QWidget();
     dirWidget->setAttribute(Qt::WA_StyledBackground, true);
     dirWidget->setStyleSheet(QString("background:%1;").arg(t.cardBg.name()));
     auto *dirLayout = new QHBoxLayout(dirWidget);
     dirLayout->setContentsMargins(8, 0, 8, 0);
-    auto *pill = new QLabel(r.punchStatusName());
+    auto *pill = new QLabel(r.answered ? r.answerSummary() : r.punchStatusName());
+    if (r.answered && !r.answerReason.isEmpty()) dirWidget->setToolTip("Reason: " + r.answerReason);
     pill->setAlignment(Qt::AlignCenter);
     QColor pillFg = isIn ? t.success : t.danger;
     QColor pillBg = isIn ? t.successBg : t.dangerBg;
@@ -153,9 +157,9 @@ void AttendancePage::addRowToTable(int row, const AttendanceRecord &r) {
                                  "font-size:11px; font-weight:600;")
                             .arg(pillBg.name(), pillFg.name()));
     dirLayout->addWidget(pill, 0, Qt::AlignVCenter);
-    m_table->setCellWidget(row, 3, dirWidget);
+    m_table->setCellWidget(row, 4, dirWidget);
 
-    m_table->setItem(row, 4, item(r.verifyTypeName()));
+    m_table->setItem(row, 5, item(r.verifyTypeName()));
 
     // Sync status pill, with a matching status icon
     auto *syncWidget = new QWidget();
@@ -175,10 +179,10 @@ void AttendancePage::addRowToTable(int row, const AttendanceRecord &r) {
     syncWidget->setStyleSheet(QString("background:%1; border-radius:8px;").arg(bg.name()));
     syncLayout->addWidget(iconLbl, 0, Qt::AlignVCenter);
     syncLayout->addWidget(syncPill, 0, Qt::AlignVCenter);
-    m_table->setCellWidget(row, 5, syncWidget);
+    m_table->setCellWidget(row, 6, syncWidget);
 
-    m_table->setItem(row, 6, item(r.workCode.isEmpty() ? "—" : r.workCode));
-    m_table->setItem(row, 7, item(r.deviceName.isEmpty() ? "—" : r.deviceName));
+    m_table->setItem(row, 7, item(r.workCode.isEmpty() ? "—" : r.workCode));
+    m_table->setItem(row, 8, item(r.deviceName.isEmpty() ? "—" : r.deviceName));
 }
 
 void AttendancePage::onContextMenuRequested(const QPoint &pos) {

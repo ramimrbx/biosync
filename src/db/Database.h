@@ -61,6 +61,11 @@ public:
 
     int maxAttendanceId() const;
 
+    // Names of the people enrolled on a device (from RitOS punches or a ZKTeco user list), used to
+    // show who punched. Returns the number of names given.
+    void setDeviceUserName(const QString &serial, const QString &pin, const QString &name);
+    int  setDeviceUserNames(const QString &serial, const QHash<QString, QString> &names);
+
     // Device logs
     void appendLog(const QString &deviceSerial, const QString &message);
     QStringList getDeviceLogs(const QString &deviceSerial = {}, int limit = 500) const;

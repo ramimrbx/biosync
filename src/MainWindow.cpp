@@ -620,7 +620,7 @@ void MainWindow::onRestartDevice(const QString &serial) {
     m_deviceOnlineMap[serial] = false;
     m_db->clearDeviceSeen(serial);
     m_devicesPage->markDeviceOnline(serial, false);
-    onLogMessage(serial, QString("Restart command queued for SN=%1 — delivered on its next poll.").arg(serial));
+    onLogMessage(serial, QString("Restart command queued for SN=%1 — delivered when the device next checks in.").arg(serial));
     m_trayIcon->showMessage("BioSync — Device Restart",
         QString("Restart command sent to device %1.").arg(serial),
         QSystemTrayIcon::Information, 3000);
@@ -670,7 +670,7 @@ void MainWindow::onRestoreTemplates(const QString &serial) {
     mb.setText(QString("Restore backed-up templates to device %1 (%2)?").arg(d.name, serial));
     mb.setInformativeText(
         "Backed-up templates will be fetched from the server and pushed to the device "
-        "on its next heartbeat poll via ADMS DATA UPDATE command.");
+        "when it next checks in (ADMS DATA UPDATE for ZKTeco, WebSocket for RitOS).");
     mb.setStandardButtons(QMessageBox::Ok | QMessageBox::Cancel);
     mb.setIcon(QMessageBox::Question);
     for (auto *btn : mb.findChildren<QPushButton*>())
@@ -691,7 +691,7 @@ void MainWindow::onRestoreTemplates(const QString &serial) {
         onLogMessage(serial, QString("Restore of %1 template(s) queued for SN=%2.")
                                  .arg(templates.size()).arg(serial));
         m_trayIcon->showMessage("BioSync — Restore Queued",
-            QString("%1 template(s) will be pushed to device %2 on next poll.")
+            QString("%1 template(s) will be pushed to device %2 when it next checks in.")
                 .arg(templates.size()).arg(serial),
             QSystemTrayIcon::Information, 4000);
     });

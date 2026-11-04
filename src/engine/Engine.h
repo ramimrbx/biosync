@@ -1,13 +1,14 @@
 #pragma once
 #include <QObject>
 #include <QHash>
+#include <QSet>
 #include "db/Database.h"
 #include "server/ZkAdmsServer.h"
 #include "service/ApiPusher.h"
 
 class QTimer;
 
-// The attendance engine: ADMS server (devices connect here) + local record store + API pusher +
+// The attendance engine: attendance server (ZKTeco on ADMS, RitOS on WebSocket) + local record store + API pusher +
 // device command delivery. Exactly ONE BioSync process runs it at a time, because only one can
 // own the server port. Normally that is the background service; the window runs it only when no
 // service is running, and hands it back as soon as the service asks for it.
@@ -57,7 +58,12 @@ private:
     void onDeviceHeartbeat(const QString &serial, const QString &ip);
     void onUnknownDevice(const QString &serial, const QString &ip);
     void onTemplatesReceived(const QString &serial, const QList<BiometricTemplate> &templates);
-    void onCommandResult(const QString &serial, int commandId, int returnCode);
+    void onCommandResult(const QString &serial, int commandId, int returnCode, const QString &message);
+    void onTemplateQueryEmpty(const QString &serial, int commandId);
+    void onDeviceUserNames(const QString &serial, const QHash<QString, QString> &names);
+    void onAdmsDevicePolled(const QString &serial);
+    void onPunchContextRequested(const QString &serial, int requestId, const QString &userPin,
+                                 const QDateTime &punchTime);
 
     Database     *m_db;
     Role          m_role;
@@ -69,4 +75,5 @@ private:
     QString m_restartSeen;
     int     m_ticks = 0;
     QHash<QString, qint64> m_lastSeen;   // serial → ms, to log "came online" once per session
+    QSet<QString> m_userListRequested;   // ZKTeco devices already asked for their user list
 };

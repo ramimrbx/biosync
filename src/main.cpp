@@ -57,7 +57,7 @@ static void installDesktopIntegration() {
         "Type=Application\n"
         "Name=BioSync\n"
         "GenericName=Attendance Manager\n"
-        "Comment=ZKTeco biometric attendance manager\n"
+        "Comment=ZKTeco and RitOS biometric attendance manager\n"
         "Icon=biosync\n"
         "Exec=" + exePath + "\n"
         "Terminal=false\n"

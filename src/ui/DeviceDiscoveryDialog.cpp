@@ -31,7 +31,7 @@ DeviceDiscoveryDialog::DeviceDiscoveryDialog(const QSet<QString> &existingSerial
     titleBar->setFixedHeight(58);
     auto *tbLayout = new QHBoxLayout(titleBar);
     tbLayout->setContentsMargins(20, 0, 20, 0);
-    auto *tbTitle = new QLabel("Discover ZKTeco Devices");
+    auto *tbTitle = new QLabel("Discover Devices");
     tbTitle->setStyleSheet(QString("color:%1; font-size:16px; font-weight:700;").arg(t.accent.name()));
     auto *tbSub = new QLabel("Automatically find devices on your network");
     tbSub->setStyleSheet(QString("color:%1; font-size:11px;").arg(t.textSecondary.name()));
@@ -81,7 +81,7 @@ DeviceDiscoveryDialog::DeviceDiscoveryDialog(const QSet<QString> &existingSerial
              t.textDisabled.name(), t.scrollHandle.name(), t.accent.name()));
 
     // ── Empty state label ─────────────────────────────────────────────────────
-    m_emptyLabel = new QLabel("Searching for ZKTeco devices on your network...");
+    m_emptyLabel = new QLabel("Searching for ZKTeco and RitOS devices on your network...");
     m_emptyLabel->setAlignment(Qt::AlignCenter);
     m_emptyLabel->setStyleSheet(QString("color:%1; font-size:13px; padding:40px;").arg(t.placeholder.name()));
 
@@ -205,13 +205,13 @@ void DeviceDiscoveryDialog::onScanFinished(int total) {
     m_btnRescan->setEnabled(true);
     if (total == 0) {
         m_statusLabel->setText(
-            "No devices found. Ensure devices are on the same network with ADMS enabled.");
+            "No devices found. Ensure devices are on the same network with ADMS (ZKTeco) or Send to server (RitOS) enabled.");
         m_statusLabel->setStyleSheet(QString("font-size:12px; color:%1;").arg(t.warning.name()));
         m_table->setRowCount(0);
         // Show empty-state hint row
         m_table->insertRow(0);
         auto *emptyItem = new QTableWidgetItem(
-            "No devices responded. Try configuring device ADMS settings first.");
+            "No devices responded. Try configuring the device server settings first.");
         emptyItem->setTextAlignment(Qt::AlignCenter);
         emptyItem->setForeground(t.placeholder);
         m_table->setItem(0, 1, emptyItem);

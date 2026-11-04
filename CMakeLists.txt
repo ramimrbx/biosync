@@ -22,6 +22,7 @@ set(SOURCES
         src/engine/Engine.cpp
         src/db/Database.cpp
         src/server/ZkAdmsServer.cpp
+        src/server/RitosLink.cpp
         src/service/ApiPusher.cpp
         src/service/Autostart.cpp
         src/service/DeviceDiscovery.cpp
@@ -47,6 +48,8 @@ set(HEADERS
         src/model/AttendanceRecord.h
         src/db/Database.h
         src/server/ZkAdmsServer.h
+        src/server/RitosLink.h
+        src/server/ServerTypes.h
         src/service/ApiPusher.h
         src/service/Autostart.h
         src/service/DeviceDiscovery.h

@@ -4,6 +4,8 @@
 #include <QNetworkReply>
 #include <QTimer>
 #include <functional>
+#include <QJsonObject>
+#include <QDateTime>
 #include "../db/Database.h"
 #include "../model/BiometricTemplate.h"
 
@@ -30,6 +32,13 @@ public:
     // Invokes callback(templates) when complete; empty list on error.
     void fetchBiometricTemplates(const QString &deviceSerial,
                                  std::function<void(QList<BiometricTemplate>)> callback);
+
+    // Interactive attendance on the device: asks RiTEMS what to ask the person for a punch they
+    // just made (entry/exit, reasons, …). done(ok, context, error); context is RiTEMS'
+    // PunchContextResponse ("interactive": false → record it as a plain punch).
+    static constexpr int PUNCH_CONTEXT_TIMEOUT_MS = 5000;
+    void fetchPunchContext(const QString &deviceSerial, const QString &userPin, const QDateTime &punchTime,
+                           std::function<void(bool, QJsonObject, QString)> done);
 
 signals:
     void statusChanged(bool online, int pendingCount);

@@ -1,6 +1,7 @@
 #pragma once
 #include <QString>
 #include <QDateTime>
+#include <QHash>
 
 enum class SyncStatus { Pending, Synced, Failed };
 
@@ -18,6 +19,27 @@ struct AttendanceRecord {
     QDateTime createdAt;
     QDateTime syncedAt;
     QString errorMessage;
+
+    // Name of the person, from the device (RitOS sends it with each punch; ZKTeco devices report
+    // their user list) — shown in the attendance table. Empty when not known.
+    QString userName;
+
+    // Interactive attendance answered on the device itself (RitOS). Sent to RiTEMS with the punch,
+    // which then classifies it directly instead of asking in the browser / Android app.
+    bool    answered = false;
+    QString answerDirection;   // ENTRY / EXIT, as the device showed it
+    QString answerExitType;    // OFFICE / PERSONAL / LUNCH / END_OF_DAY, exits only
+    QString answerReason;
+    bool    answerMistake = false;
+
+    QString answerSummary() const {
+        if (!answered) return {};
+        if (answerMistake) return "Mistake";
+        if (answerDirection == "ENTRY") return "Entry";
+        static const QHash<QString, QString> types{
+            {"OFFICE", "Office work"}, {"PERSONAL", "Personal"}, {"LUNCH", "Lunch"}, {"END_OF_DAY", "End of day"}};
+        return "Exit · " + types.value(answerExitType, "Exit");
+    }
 
     QString verifyTypeName() const {
         switch (verifyType) {

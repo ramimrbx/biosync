@@ -3,6 +3,26 @@
 All notable changes to BioSync are recorded here. Installing a newer version over an older one
 upgrades in place — your configuration, devices and pending records are kept.
 
+## 1.5.0 — 2026-11-04
+- **RitOS devices supported.** Our own BioSync attendance hardware (RitOS firmware) now works with
+  BioSync just like a ZKTeco device. Point the device's Server setting at this computer and the
+  BioSync port (8085 by default). It connects over a WebSocket on the same port as ZKTeco's ADMS,
+  in JSON or text format. ZKTeco devices keep working exactly as before.
+- RitOS devices are registered automatically and show live online status. Their punches are stored,
+  confirmed back to the device so none are lost if the connection drops, and pushed to RiTEMS.
+- **Restart device**, **Backup templates** and **Restore templates** work on RitOS devices. Large
+  restores are sent in parts the device can accept.
+- **Scan network** finds RitOS devices as well as ZKTeco ones.
+- Device command errors now show the device's own explanation (for example "Sensor offline").
+- **Interactive attendance on the device.** With *Interactive attendance* turned on in a RitOS
+  device's settings, the person answers RiTEMS' entry/exit question on the device itself, right after
+  punching. BioSync asks RiTEMS what to ask, relays the answer with the punch, and RiTEMS records it
+  directly with no browser or Android popup. If RiTEMS can't be reached or nobody answers, the punch
+  is recorded as before and RiTEMS asks in the browser or app. Needs the matching RiTEMS update.
+- **Names in the attendance table.** A new Name column shows who punched, for RitOS devices (sent
+  with every punch) and ZKTeco devices (BioSync reads each device's user list). Punches answered on
+  the device show the answer, for example "Exit · Office work", with the reason as a tooltip.
+
 ## 1.4.2 — 2026-11-04
 - **Starts in the system tray at sign-in** — BioSync now starts automatically when you sign in to
   the computer, straight into the system tray: no window and no splash screen. (Attendance itself

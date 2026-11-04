@@ -40,6 +40,33 @@ cmake --build build --config Release
    - Enable HTTPS: Off
 4. The device will appear Online in BioSync when it sends the first heartbeat
 
+## RitOS (BioSync hardware) Device Setup
+RitOS devices connect to the **same port** as ZKTeco devices, but over a WebSocket instead of
+ADMS HTTP polling. BioSync tells them apart automatically, so both kinds can be used together.
+1. On the device, open **Settings > Server**
+2. **Server IP or name:** `<this machine's IP>`, **Port:** `8085` (or your configured port).
+   You can also type `192.168.0.10:8085` in the IP field. Any **WebSocket path** works.
+3. **Data format:** JSON or Text, BioSync understands both
+4. Turn on **Send to server**. The device is registered automatically on its first connection,
+   with its device ID (for example `BioSync-C8A85C`) as the serial number.
+
+Everything available for ZKTeco devices works for RitOS too: live online status, punches (stored
+locally, confirmed back to the device, then pushed to RiTEMS), **Restart device**,
+**Backup templates**, **Restore templates**, and **Scan network** (the device answers the UDP
+discovery broadcast on port 4370). The wire protocol is described in `src/server/RitosLink.h`
+and in the RitOS README.
+
+**Interactive attendance on the device:** turn on *Settings > Attendance > Interactive attendance*
+on the RitOS device. After a punch the device asks BioSync, which calls
+`POST /api/v1/biosync/punch-context` on RiTEMS, what to ask. The person answers on the device, and
+the punch is pushed with an `answer`, so RiTEMS classifies it directly with no browser or Android
+popup. If RiTEMS is unreachable, too old or doesn't answer, the punch goes through as a normal one
+and RiTEMS shows its popup as before.
+
+**User names:** the attendance table shows the person's name. RitOS sends it with each punch.
+ZKTeco devices are asked for their user list (`DATA QUERY USERINFO`) once per session, and new
+enrolments arrive in their OPERLOG.
+
 ## API Configuration
 Set the shared API key on the RiTEMS side (the database value takes priority if both are set):
 - **Recommended:** in RiTEMS go to **Settings → Gateway** and add a system config with

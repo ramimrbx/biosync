@@ -28,7 +28,7 @@ DevicesPage::DevicesPage(Database *db, QWidget *parent)
     auto *titleBlock = new QVBoxLayout();
     auto *titleLabel = new QLabel("Devices");
     titleLabel->setStyleSheet("font-size:18px; font-weight:700;");
-    auto *subLabel = new QLabel("Manage ZKTeco attendance devices");
+    auto *subLabel = new QLabel("Manage ZKTeco and RitOS attendance devices");
     subLabel->setStyleSheet("font-size:12px; color:palette(mid);");
     titleBlock->setSpacing(2);
     titleBlock->addWidget(titleLabel);

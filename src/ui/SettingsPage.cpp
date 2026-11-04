@@ -68,7 +68,7 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     ipLayout->addSpacing(10);
     ipLayout->addLayout(ipTextCol);
     ipLayout->addStretch();
-    auto *ipHint = new QLabel("← Configure this IP on your ZKTeco devices");
+    auto *ipHint = new QLabel("← Configure this IP on your ZKTeco and RitOS devices");
     ipHint->setObjectName("ipHint");
     ipLayout->addWidget(ipHint);
 
@@ -111,7 +111,7 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     m_actionToast->setStyleSheet("font-size:12px; font-weight:600; padding:2px 0;");
     m_actionToast->setVisible(false);
     serverControlLayout->addWidget(m_actionToast);
-    serverControlLayout->addWidget(hint("Start/Stop the ADMS listener. Restart applies new port settings immediately."));
+    serverControlLayout->addWidget(hint("Start/Stop the attendance server. Restart applies new port settings immediately."));
 
     // Attendance always runs in the background service at boot; this only opens the window.
     // Attendance always runs in the background service from power-on; this only adds the tray icon.
@@ -126,14 +126,14 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     m_serverPort->setValue(8085);
     m_serverPort->setMaximumWidth(120);
 
-    auto *serverGroup = new QGroupBox("ADMS Server");
+    auto *serverGroup = new QGroupBox("Attendance Server");
     auto *serverForm = new QFormLayout(serverGroup);
     serverForm->setLabelAlignment(Qt::AlignRight);
     serverForm->setSpacing(14);
     serverForm->setContentsMargins(8, 16, 8, 8);
     serverForm->addRow(styledLabel("Listen Port"), m_serverPort);
     serverForm->addRow("",
-        hint("Set your ZKTeco device's ADMS server address to the IP above and this port."));
+        hint("ZKTeco: set the ADMS server address to the IP above and this port. RitOS: set Settings > Server to the same IP and port (WebSocket)."));
 
     // ── API Connection card ───────────────────────────────────────────────────
     m_apiUrl = new QLineEdit();

@@ -139,6 +139,16 @@ void ApiPusher::doPush() {
             obj["verifyType"] = r.verifyType;
             obj["punchStatus"]= r.punchStatus;
             if (!r.workCode.isEmpty()) obj["workCode"] = r.workCode;
+            if (r.answered) {
+                // Interactive answer given on the device: RiTEMS classifies the punch with it and
+                // shows no popup. (An older RiTEMS ignores the field and shows the popup as before.)
+                QJsonObject answer;
+                if (!r.answerDirection.isEmpty()) answer["direction"] = r.answerDirection;
+                if (!r.answerExitType.isEmpty())  answer["exitType"]  = r.answerExitType;
+                if (!r.answerReason.isEmpty())    answer["reason"]    = r.answerReason;
+                answer["mistake"] = r.answerMistake;
+                obj["answer"] = answer;
+            }
             recordsArr.append(obj);
         }
 
@@ -311,4 +321,42 @@ void ApiPusher::fetchBiometricTemplates(const QString &deviceSerial,
 
 void ApiPusher::emitStatus() {
     emit statusChanged(m_isOnline, m_db->getPendingCount());
+}
+
+void ApiPusher::fetchPunchContext(const QString &deviceSerial, const QString &userPin,
+                                  const QDateTime &punchTime,
+                                  std::function<void(bool, QJsonObject, QString)> done)
+{
+    if (m_apiUrl.isEmpty() || m_apiKey.isEmpty() || m_institutionId <= 0) {
+        done(false, {}, "BioSync is not connected to RiTEMS (server URL / API key / institution not set).");
+        return;
+    }
+
+    QJsonObject payload;
+    payload["deviceSerial"]  = deviceSerial;
+    payload["institutionId"] = static_cast<qint64>(m_institutionId);
+    payload["userPin"]       = userPin;
+    payload["punchTime"]     = punchTime.toString("yyyy-MM-dd HH:mm:ss");
+    const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+
+    QNetworkRequest req(QUrl(m_apiUrl + "/api/v1/biosync/punch-context"));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    req.setRawHeader("X-BioSync-Key", m_apiKey.toUtf8());
+    signRequest(req, body);
+    req.setTransferTimeout(PUNCH_CONTEXT_TIMEOUT_MS);   // the person is waiting at the device
+
+    QNetworkReply *reply = m_nam->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [reply, done]() {
+        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError && httpStatus == 200 && root.value("data").isObject()) {
+            done(true, root.value("data").toObject(), {});
+        } else if (httpStatus == 404) {
+            done(false, {}, "This RiTEMS server does not support answering on the device yet.");
+        } else {
+            const QString msg = root.value("message").toString();
+            done(false, {}, msg.isEmpty() ? QString("HTTP %1: %2").arg(httpStatus).arg(reply->errorString()) : msg);
+        }
+    });
 }

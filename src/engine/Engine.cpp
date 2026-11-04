@@ -27,6 +27,10 @@ Engine::Engine(Database *db, Role role, QObject *parent)
     connect(m_server, &ZkAdmsServer::deviceHeartbeat,        this, &Engine::onDeviceHeartbeat);
     connect(m_server, &ZkAdmsServer::unknownDeviceConnected, this, &Engine::onUnknownDevice);
     connect(m_server, &ZkAdmsServer::biometricTemplatesReceived, this, &Engine::onTemplatesReceived);
+    connect(m_server, &ZkAdmsServer::biometricQueryEmpty,    this, &Engine::onTemplateQueryEmpty);
+    connect(m_server, &ZkAdmsServer::deviceUserNames,        this, &Engine::onDeviceUserNames);
+    connect(m_server, &ZkAdmsServer::admsDevicePolled,       this, &Engine::onAdmsDevicePolled);
+    connect(m_server, &ZkAdmsServer::punchContextRequested,  this, &Engine::onPunchContextRequested);
     connect(m_server, &ZkAdmsServer::commandResult,          this, &Engine::onCommandResult);
     connect(m_server, &ZkAdmsServer::logMessage,             this, &Engine::log);
 
@@ -198,14 +202,54 @@ void Engine::onTemplatesReceived(const QString &serial, const QList<BiometricTem
     });
 }
 
-void Engine::onCommandResult(const QString &, int commandId, int returnCode) {
+void Engine::onTemplateQueryEmpty(const QString &serial, int commandId) {
+    const DeviceCommand cmd = m_db->getCommand(commandId);
+    if (!cmd.id || cmd.status != "sent") return;
+    m_db->setCommandStatus(cmd.id, "done", "0");
+    log(serial, QString("SN=%1 has no fingerprint templates to back up.").arg(serial));
+}
+
+void Engine::onCommandResult(const QString &, int commandId, int returnCode, const QString &message) {
     const DeviceCommand cmd = m_db->getCommand(commandId);
     if (!cmd.id || cmd.status != "sent") return;   // unknown, or already uploading/finished
     if (returnCode != 0) {
-        m_db->setCommandStatus(cmd.id, "failed", QString("Device returned error %1.").arg(returnCode));
+        m_db->setCommandStatus(cmd.id, "failed",
+                               message.isEmpty() ? QString("Device returned error %1.").arg(returnCode)
+                                                 : QString("%1 (error %2)").arg(message).arg(returnCode));
     } else if (cmd.command == "DATA QUERY FINGERTMP") {
         m_db->setCommandStatus(cmd.id, "sent", "ack");   // templates still to come
     } else {
         m_db->setCommandStatus(cmd.id, "done");
     }
+}
+
+// ── Names and interactive attendance ─────────────────────────────────────────
+
+void Engine::onDeviceUserNames(const QString &serial, const QHash<QString, QString> &names) {
+    const int n = m_db->setDeviceUserNames(serial, names);
+    log(serial, QString("Saved %1 user name(s) reported by SN=%2.").arg(n).arg(serial));
+}
+
+// A ZKTeco device lists its users only when asked; ask once per connection session so the
+// attendance table can show names. New enrolments arrive by themselves in its OPERLOG.
+void Engine::onAdmsDevicePolled(const QString &serial) {
+    if (m_userListRequested.contains(serial)) return;
+    m_userListRequested.insert(serial);
+    m_db->queueDeviceCommand(serial, "DATA QUERY USERINFO");
+}
+
+// A person just punched on a RitOS device with interactive attendance on. Ask RiTEMS what the
+// popup would show and hand it to the device, which asks the person on its own screen.
+void Engine::onPunchContextRequested(const QString &serial, int requestId, const QString &userPin,
+                                     const QDateTime &punchTime) {
+    m_pusher->fetchPunchContext(serial, userPin, punchTime,
+        [this, serial, requestId, userPin](bool ok, QJsonObject context, QString error) {
+            if (!ok) {
+                // The device records a plain punch; RiTEMS then asks in the browser / app as before.
+                context = QJsonObject{{"interactive", false}, {"note", error}};
+                log(serial, QString("Interactive question for PIN %1 unavailable: %2 — the device "
+                                    "records a plain punch.").arg(userPin, error));
+            }
+            m_server->sendPunchContext(serial, requestId, context);
+        });
 }

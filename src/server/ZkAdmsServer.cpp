@@ -1,11 +1,64 @@
 #include "ZkAdmsServer.h"
+#include "RitosLink.h"
 #include <QDebug>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QSet>
 #include <QTimer>
 
-ZkAdmsServer::ZkAdmsServer(QObject *parent) : QObject(parent) {}
+ZkAdmsServer::ZkAdmsServer(QObject *parent) : QObject(parent) {
+    // RitOS devices on WebSocket raise the same signals as ZKTeco devices on ADMS.
+    m_ritos = new RitosLink(this);
+    connect(m_ritos, &RitosLink::deviceSeen,          this, &ZkAdmsServer::noteDevice);
+    connect(m_ritos, &RitosLink::attendanceReceived,  this, &ZkAdmsServer::attendanceReceived);
+    connect(m_ritos, &RitosLink::logMessage,          this, &ZkAdmsServer::logMessage);
+    connect(m_ritos, &RitosLink::biometricTemplatesReceived,
+            this, &ZkAdmsServer::biometricTemplatesReceived);
+    connect(m_ritos, &RitosLink::biometricQueryEmpty, this, &ZkAdmsServer::biometricQueryEmpty);
+    connect(m_ritos, &RitosLink::commandResult,       this, &ZkAdmsServer::commandResult);
+    connect(m_ritos, &RitosLink::punchContextRequested, this, &ZkAdmsServer::punchContextRequested);
+}
+
+void ZkAdmsServer::sendPunchContext(const QString &serial, int requestId, const QJsonObject &context) {
+    m_ritos->sendPunchContext(serial, requestId, context);
+}
+
+QHash<QString, QString> ZkAdmsServer::parseUserNames(const QByteArray &body) {
+    QHash<QString, QString> names;
+    for (const QString &rawLine : QString::fromUtf8(body).split('\n')) {
+        QString line = rawLine.trimmed();
+        // "USER PIN=…" (OPERLOG) or "user uid=… pin=…" (querydata): drop the leading record word.
+        const int firstEq = line.indexOf('=');
+        const int firstSpace = line.indexOf(' ');
+        if (firstSpace > 0 && firstSpace < firstEq) {
+            const QString word = line.left(firstSpace).toUpper();
+            if (word != "USER") continue;   // FP, OPLOG, … lines carry no names
+            line = line.mid(firstSpace + 1);
+        }
+        QString pin, name;
+        for (const QString &field : line.split('\t')) {
+            const int eq = field.indexOf('=');
+            if (eq <= 0) continue;
+            const QString key = field.left(eq).trimmed().toLower();
+            if (key == "pin") pin = field.mid(eq + 1).trimmed();
+            else if (key == "name") name = field.mid(eq + 1).trimmed();
+        }
+        if (!pin.isEmpty() && !name.isEmpty()) names.insert(pin, name);
+    }
+    return names;
+}
+
+void ZkAdmsServer::setCommandProvider(CommandProvider provider) {
+    m_commandProvider = provider;
+    m_ritos->setCommandProvider(std::move(provider));
+}
+
+void ZkAdmsServer::noteDevice(const QString &serial, const QString &ip) {
+    if (serial.isEmpty()) return;
+    if (!m_knownSerials.contains(serial))
+        emit unknownDeviceConnected(serial, ip);
+    emit deviceHeartbeat(serial, ip);
+}
 
 void ZkAdmsServer::setKnownSerials(const QSet<QString> &serials) {
     m_knownSerials = serials;
@@ -32,7 +85,8 @@ bool ZkAdmsServer::start(quint16 port) {
 
     m_lastError = QAbstractSocket::UnknownSocketError;
     m_lastErrorString.clear();
-    emit logMessage({}, QString("ZKTeco ADMS server started on port %1").arg(port));
+    emit logMessage({}, QString("Attendance server started on port %1 "
+                                "(ZKTeco ADMS over HTTP, RitOS over WebSocket)").arg(port));
     return true;
 }
 
@@ -42,7 +96,8 @@ void ZkAdmsServer::stop() {
     // Drop any open device connections now (RST) so nothing keeps the port busy after we stop.
     const auto sockets = m_buffers.keys();
     for (QTcpSocket *s : sockets) s->abort();
-    emit logMessage({}, "ZKTeco ADMS server stopped.");
+    m_ritos->closeAll();
+    emit logMessage({}, "Attendance server stopped.");
 }
 
 bool ZkAdmsServer::isRunning() const {
@@ -108,6 +163,15 @@ void ZkAdmsServer::onReadyRead() {
 
         ParsedRequest req = parseHttpRequest(buf.left(total));
         buf.remove(0, total);
+
+        // A RitOS device opening its WebSocket: from here on the connection belongs to RitosLink.
+        if (req.valid && RitosLink::isUpgradeRequest(req)) {
+            const QByteArray leftover = m_buffers.take(socket);   // frames sent right after the handshake
+            disconnect(socket, nullptr, this, nullptr);
+            m_ritos->adopt(socket, req, leftover);
+            return;
+        }
+
         if (req.valid) handleRequest(socket, req);
         handled = true;
     }
@@ -178,13 +242,7 @@ void ZkAdmsServer::handleRequest(QTcpSocket *socket, const ParsedRequest &req) {
     }
 
     QString serial = queryParam(req, "SN");
-    QString ip     = socket->peerAddress().toString();
-
-    if (!serial.isEmpty()) {
-        if (!m_knownSerials.contains(serial))
-            emit unknownDeviceConnected(serial, ip);
-        emit deviceHeartbeat(serial, ip);
-    }
+    noteDevice(serial, socket->peerAddress().toString());
 
     if (req.method == "GET" && req.path.startsWith("/iclock/getrequest")) {
         handleGetRequest(socket, req);
@@ -194,6 +252,13 @@ void ZkAdmsServer::handleRequest(QTcpSocket *socket, const ParsedRequest &req) {
         handleDeviceInfo(socket, req);
     } else if (req.method == "POST" && req.path.startsWith("/iclock/devicecmd")) {
         handleDeviceCmdResult(socket, req);
+    } else if (req.method == "POST" && req.path.startsWith("/iclock/querydata")) {
+        // Newer firmware answers DATA QUERY USERINFO here ("user uid=… pin=…\tname=…" lines).
+        const auto names = parseUserNames(req.body);
+        emit logMessage(serial, QString("SN=%1: query data received (%2 bytes, %3 user name(s)).")
+                        .arg(serial).arg(req.body.size()).arg(names.size()));
+        if (!names.isEmpty()) emit deviceUserNames(serial, names);
+        sendResponse(socket, 200, "OK");
     } else {
         // Log unknown paths — helps identify device-specific endpoints
         emit logMessage(serial, QString("SN=%1: %2 %3 (%4 bytes) — unhandled, responding OK.")
@@ -205,6 +270,7 @@ void ZkAdmsServer::handleRequest(QTcpSocket *socket, const ParsedRequest &req) {
 void ZkAdmsServer::handleGetRequest(QTcpSocket *socket, const ParsedRequest &req) {
     QString serial = queryParam(req, "SN");
     emit logMessage(serial, QString("Heartbeat from device SN=%1").arg(serial));
+    if (!serial.isEmpty()) emit admsDevicePolled(serial);
 
     // Deliver the next pending command, if any
     QueuedCommand cmd;
@@ -266,10 +332,13 @@ void ZkAdmsServer::handleAttendancePost(QTcpSocket *socket, const ParsedRequest 
             emit biometricTemplatesReceived(serial, templates);
         sendResponse(socket, 200, QString("OK: %1").arg(templates.size()));
 
-    } else if (table == "OPERLOG") {
-        // Operation log — acknowledge, currently not processed
-        emit logMessage(serial, QString("SN=%1: OPERLOG received (%2 bytes) — acknowledged.")
-                        .arg(serial).arg(req.body.size()));
+    } else if (table == "OPERLOG" || table == "USERINFO" || table == "USER") {
+        // Operation log / user table — only the user records ("USER PIN=…\tName=…") are used, for
+        // the names shown in the attendance table.
+        const auto names = parseUserNames(req.body);
+        emit logMessage(serial, QString("SN=%1: %2 received (%3 bytes, %4 user name(s)) — acknowledged.")
+                        .arg(serial, table).arg(req.body.size()).arg(names.size()));
+        if (!names.isEmpty()) emit deviceUserNames(serial, names);
         sendResponse(socket, 200, "OK");
 
     } else if (table.isEmpty()) {
@@ -308,7 +377,7 @@ void ZkAdmsServer::handleDeviceCmdResult(QTcpSocket *socket, const ParsedRequest
         if (idOk && retOk) {
             emit logMessage(serial, QString("SN=%1: command %2 finished (Return=%3).")
                             .arg(serial).arg(id).arg(ret));
-            emit commandResult(serial, id, ret);
+            emit commandResult(serial, id, ret, {});
         }
     }
     sendResponse(socket, 200, "OK");
