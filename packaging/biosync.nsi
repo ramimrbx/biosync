@@ -28,6 +28,11 @@ BrandingText "${APP} ${VER} — ${PUB}"
 
 ; Silently remove a previous install so each install lands as a clean new version.
 Function .onInit
+  ; Close every running BioSync (background service + any open window) so its files can be
+  ; replaced — otherwise the upgrade fails with "error opening file for writing".
+  nsExec::Exec 'schtasks /End /TN "BioSync"'
+  nsExec::Exec 'taskkill /F /IM BioSync.exe'
+  Sleep 1000
   ReadRegStr $0 HKLM "${UNINSTKEY}" "UninstallString"
   StrCmp $0 "" done
   ExecWait '"$0" /S _?=$INSTDIR'
@@ -51,6 +56,10 @@ Section "BioSync"
   ; login Run key (remove any leftover from a previous version).
   DeleteRegValue HKLM "${RUNKEY}" "BioSync"
   nsExec::Exec 'schtasks /Create /TN "BioSync" /TR "\"$INSTDIR\BioSync.exe\" --headless" /SC ONSTART /RU SYSTEM /RL HIGHEST /F'
+  ; schtasks gives every task a 72-hour run limit and "don't start / stop on battery" — that kills
+  ; the service after 3 days of uptime (or on a laptop). Lift those limits and restart it if it ever
+  ; fails. (Needs Windows 8+; on older Windows the task keeps the defaults.)
+  nsExec::Exec `powershell -NoProfile -ExecutionPolicy Bypass -Command "$$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew; Set-ScheduledTask -TaskName 'BioSync' -Settings $$s"`
   ; Start it now too, so it works without a reboot.
   nsExec::Exec 'schtasks /Run /TN "BioSync"'
 
@@ -71,8 +80,9 @@ Section "BioSync"
 SectionEnd
 
 Section "Uninstall"
-  ; Stop + remove the headless boot task.
+  ; Stop + remove the headless boot task, and close any open window.
   nsExec::Exec 'schtasks /End /TN "BioSync"'
+  nsExec::Exec 'taskkill /F /IM BioSync.exe'
   nsExec::Exec 'schtasks /Delete /TN "BioSync" /F'
   nsExec::Exec 'netsh advfirewall firewall delete rule name="BioSync"'
   DeleteRegValue HKLM "${RUNKEY}" "BioSync"

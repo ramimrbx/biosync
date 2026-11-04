@@ -13,6 +13,11 @@ public:
     explicit SettingsPage(Database *db, QWidget *parent = nullptr);
 
     void updateServerStatus(bool running, quint16 port);
+    // Arbitrary server state line + which server buttons are usable (e.g. when the background
+    // service owns the server, Start/Stop don't apply but Restart does).
+    enum class StateTone { Ok, Warn, Error };
+    void showServerState(const QString &text, StateTone tone,
+                         bool canStart, bool canStop, bool canRestart);
     // Briefly shows a coloured confirmation line under the server buttons (e.g. after a Restart).
     void flashServerAction(const QString &message, bool ok);
 
@@ -38,6 +43,8 @@ private:
     QPushButton *m_btnRestart;
     QCheckBox   *m_autoStart;
     QLabel     *m_actionToast;
+    bool        m_customState = false;   // showServerState() text is active (vs. running/stopped)
+    StateTone   m_stateTone = StateTone::Ok;
 
     void loadSettings();
     QLabel *styledLabel(const QString &text);

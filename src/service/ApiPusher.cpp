@@ -44,11 +44,11 @@ void ApiPusher::setConfig(const QString &apiUrl, const QString &apiKey, long lon
 }
 
 void ApiPusher::pushNow() {
-    checkConnectivity();
+    if (m_autoPush) checkConnectivity();
 }
 
 void ApiPusher::onTimerTick() {
-    if (!m_apiUrl.isEmpty() && !m_apiKey.isEmpty() && m_institutionId > 0) {
+    if (m_autoPush && !m_apiUrl.isEmpty() && !m_apiKey.isEmpty() && m_institutionId > 0) {
         checkConnectivity();
     }
 }
@@ -85,7 +85,7 @@ void ApiPusher::onConnectivityCheck(QNetworkReply *reply) {
 
     emitStatus();
 
-    if (m_isOnline && !m_pushing) {
+    if (m_isOnline && !m_pushing && m_autoPush) {
         doPush();
     }
 }
@@ -175,9 +175,13 @@ void ApiPusher::onNetworkReply(QNetworkReply *reply) {
 
 void ApiPusher::pushBiometricTemplates(const QString &deviceSerial,
                                         const QString &deviceName,
-                                        const QList<BiometricTemplate> &templates)
+                                        const QList<BiometricTemplate> &templates,
+                                        std::function<void(bool, QString)> done)
 {
-    if (m_apiUrl.isEmpty() || m_apiKey.isEmpty() || m_institutionId <= 0) return;
+    if (m_apiUrl.isEmpty() || m_apiKey.isEmpty() || m_institutionId <= 0) {
+        if (done) done(false, "API is not configured (server URL / key / institution).");
+        return;
+    }
 
     QJsonArray arr;
     for (const auto &t : templates) {
@@ -202,15 +206,19 @@ void ApiPusher::pushBiometricTemplates(const QString &deviceSerial,
 
     int count = templates.size();
     QNetworkReply *reply = m_nam->post(req, QJsonDocument(payload).toJson(QJsonDocument::Compact));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, deviceSerial, count]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, deviceSerial, count, done]() {
         int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         bool ok = (reply->error() == QNetworkReply::NoError && httpStatus == 200);
-        if (ok)
-            emit logMessage(QString("Backed up %1 biometric template(s) for device %2.").arg(count).arg(deviceSerial));
-        else
-            emit logMessage(QString("Failed to back up templates for %1: %2 (HTTP %3)")
-                            .arg(deviceSerial, reply->errorString()).arg(httpStatus));
+        QString msg;
+        if (ok) {
+            msg = QString("Backed up %1 biometric template(s) for device %2.").arg(count).arg(deviceSerial);
+        } else {
+            msg = QString("Failed to back up templates for %1: %2 (HTTP %3)")
+                      .arg(deviceSerial, reply->errorString()).arg(httpStatus);
+        }
+        emit logMessage(msg);
         reply->deleteLater();
+        if (done) done(ok, msg);
     });
 }
 

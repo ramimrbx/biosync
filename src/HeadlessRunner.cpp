@@ -4,16 +4,16 @@
 #include <QDateTime>
 #include <QTextStream>
 
+static constexpr int RETRY_MS = 3000;
+
 HeadlessRunner::HeadlessRunner(QObject *parent) : QObject(parent) {
-    m_db     = new Database(this);
-    m_server = new ZkAdmsServer(this);
-    m_pusher = new ApiPusher(m_db, this);
+    m_db = new Database(this);
 }
 
 void HeadlessRunner::log(const QString &msg) {
-    QTextStream(stdout) << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss")
-                        << "  " << msg << "\n";
-    QTextStream(stdout).flush();
+    QTextStream out(stdout);
+    out << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss") << "  " << msg << "\n";
+    out.flush();
 }
 
 bool HeadlessRunner::start() {
@@ -22,78 +22,63 @@ bool HeadlessRunner::start() {
         log(QStringLiteral("FATAL: could not open database at %1").arg(path));
         return false;
     }
-    log(QStringLiteral("BioSync headless service starting. DB: %1").arg(path));
+    log(QStringLiteral("BioSync background service starting. DB: %1").arg(path));
 
-    connect(m_server, &ZkAdmsServer::attendanceReceived,     this, &HeadlessRunner::onAttendanceReceived);
-    connect(m_server, &ZkAdmsServer::unknownDeviceConnected, this, &HeadlessRunner::onUnknownDeviceConnected);
-    connect(m_server, &ZkAdmsServer::deviceHeartbeat,        this, &HeadlessRunner::onDeviceHeartbeat);
-    connect(m_server, &ZkAdmsServer::logMessage,             this, &HeadlessRunner::onLog);
-    connect(m_pusher, &ApiPusher::logMessage,                this, [this](const QString &msg){ log(msg); });
+    m_engine = new Engine(m_db, Engine::Role::Service, this);
+    connect(m_engine, &Engine::logMessage, this, [this](const QString &serial, const QString &msg) {
+        log(serial.isEmpty() ? msg : QStringLiteral("[%1] %2").arg(serial, msg));
+    });
 
-    syncKnownSerials();
+    // Retry loop: (re)acquire the port whenever we don't hold it — at startup, or if a port
+    // change / restart ever loses it. The service never gives up and never exits for this.
+    m_retry = new QTimer(this);
+    m_retry->setInterval(RETRY_MS);
+    connect(m_retry, &QTimer::timeout, this, [this]() { if (!m_engine->isRunning()) tryStart(); });
+    m_retry->start();
 
-    const quint16 port = static_cast<quint16>(m_db->getSetting("server_port", "8085").toUShort());
-    if (!m_server->start(port)) {
-        log(QStringLiteral("FATAL: could not bind ADMS server on port %1").arg(port));
-        return false;
-    }
-    log(QStringLiteral("ADMS server listening on port %1").arg(port));
-
-    reloadPusherConfig();
-    // The config may be set/changed later in the GUI (which writes the same shared DB); pick it up.
-    m_configTimer = new QTimer(this);
-    m_configTimer->setInterval(30000);
-    connect(m_configTimer, &QTimer::timeout, this, [this] { syncKnownSerials(); reloadPusherConfig(); });
-    m_configTimer->start();
+    tryStart();
     return true;
 }
 
-void HeadlessRunner::reloadPusherConfig() {
-    const QString apiUrl = m_db->getSetting("api_url");
-    const QString apiKey = m_db->getSetting("api_key");
-    const long long instId = m_db->getSetting("institution_id", "0").toLongLong();
-    m_pusher->setConfig(apiUrl, apiKey, instId);
-    if (apiUrl.isEmpty() || apiKey.isEmpty() || instId <= 0)
-        log(QStringLiteral("Waiting for API config (server URL / key / institution) — set it in the BioSync GUI."));
-}
+void HeadlessRunner::tryStart() {
+    const QString port = m_db->getSetting("server_port", "8085");
 
-void HeadlessRunner::syncKnownSerials() {
-    QSet<QString> serials;
-    for (const Device &d : m_db->getAllDevices())
-        serials.insert(d.serialNumber);
-    m_server->setKnownSerials(serials);
-}
-
-void HeadlessRunner::onAttendanceReceived(const QList<AttendanceRecord> &records) {
-    int stored = 0;
-    for (auto r : records) {
-        Device d = m_db->getDeviceBySerial(r.deviceSerial);
-        if (d.id && !d.isActive) continue;   // skip deactivated devices
-        if (!d.name.isEmpty()) r.deviceName = d.name;
-        if (m_db->addAttendanceRecord(r) > 0) stored++;
+    if (m_engine->start()) {
+        m_db->setSetting("service_waiting", "0");
+        log(m_waiting ? QStringLiteral("Took over the attendance server on port %1.").arg(port)
+                      : QStringLiteral("Attendance server listening on port %1.").arg(port));
+        m_waiting = false;
+        m_conflictLogged = false;
+        const QString apiUrl = m_db->getSetting("api_url");
+        if (apiUrl.isEmpty() || m_db->getSetting("api_key").isEmpty()
+            || m_db->getSetting("institution_id", "0").toLongLong() <= 0)
+            log(QStringLiteral("Waiting for API config (server URL / key / institution) — set it in the BioSync window."));
+        return;
     }
-    if (stored > 0) log(QStringLiteral("Stored %1 punch(es); pending %2").arg(stored).arg(m_db->getPendingCount()));
-    m_pusher->pushNow();
-}
 
-void HeadlessRunner::onUnknownDeviceConnected(const QString &serial, const QString &ip) {
-    // No user to prompt in headless mode — auto-register the device so its punches start counting.
-    Device d;
-    d.name = QStringLiteral("Device %1").arg(serial);
-    d.serialNumber = serial;
-    d.ipAddress = ip;
-    d.port = 4370;
-    d.isActive = true;
-    if (m_db->addDevice(d) > 0) {
-        m_server->addKnownSerial(serial);
-        log(QStringLiteral("Auto-registered new device %1 (%2)").arg(serial, ip));
+    if (!m_engine->lastErrorWasAddressInUse()) {
+        if (!m_conflictLogged)
+            log(QStringLiteral("Could not open port %1: %2 — retrying every %3s.")
+                    .arg(port, m_engine->lastErrorString()).arg(RETRY_MS / 1000));
+        m_conflictLogged = true;
+        return;
     }
-}
 
-void HeadlessRunner::onDeviceHeartbeat(const QString &serial, const QString &ip) {
-    m_db->appendLog(serial, QStringLiteral("Heartbeat from %1").arg(ip));
-}
+    // Port busy. If another BioSync *service* already has it, there's nothing to take over.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const bool otherServiceAlive =
+        m_db->getSetting("engine_role") == "service" &&
+        now - m_db->getSetting("engine_heartbeat", "0").toLongLong() < 3 * Engine::HEARTBEAT_MS;
+    if (otherServiceAlive) {
+        if (!m_waiting)
+            log(QStringLiteral("Another BioSync service already runs the attendance server — standing by."));
+        m_waiting = true;
+        return;
+    }
 
-void HeadlessRunner::onLog(const QString &serial, const QString &message) {
-    log(serial.isEmpty() ? message : QStringLiteral("[%1] %2").arg(serial, message));
+    // Most likely the BioSync window holds it: ask it to hand over (it checks every few seconds).
+    m_db->setSetting("service_waiting", QString::number(now));
+    if (!m_waiting)
+        log(QStringLiteral("Port %1 is held by the BioSync window — asking it to hand over to the service…").arg(port));
+    m_waiting = true;
 }

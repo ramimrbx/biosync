@@ -19,6 +19,7 @@ set(SOURCES
         src/main.cpp
         src/MainWindow.cpp
         src/HeadlessRunner.cpp
+        src/engine/Engine.cpp
         src/db/Database.cpp
         src/server/ZkAdmsServer.cpp
         src/service/ApiPusher.cpp
@@ -39,6 +40,7 @@ set(SOURCES
 set(HEADERS
         src/MainWindow.h
         src/HeadlessRunner.h
+        src/engine/Engine.h
         src/AppPaths.h
         src/Version.h
         src/model/Device.h

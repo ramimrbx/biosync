@@ -1,6 +1,7 @@
 #include "SettingsPage.h"
 #include "Theme.h"
 #include "Icons.h"
+#include <QDateTime>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -112,7 +113,8 @@ SettingsPage::SettingsPage(Database *db, QWidget *parent)
     serverControlLayout->addWidget(m_actionToast);
     serverControlLayout->addWidget(hint("Start/Stop the ADMS listener. Restart applies new port settings immediately."));
 
-    m_autoStart = new QCheckBox("  Start BioSync automatically when Windows starts");
+    // Attendance always runs in the background service at boot; this only opens the window.
+    m_autoStart = new QCheckBox("  Open the BioSync window when I sign in");
     m_autoStart->setCursor(Qt::PointingHandCursor);
     serverControlLayout->addWidget(m_autoStart);
     serverControlLayout->addWidget(hint("So the attendance server is running whenever this computer is on, even after a reboot."));
@@ -254,10 +256,15 @@ void SettingsPage::applyTheme() {
     findChild<QPushButton*>("btnRestart")->setStyleSheet(
         serverBtnStyle(t.accent, t.accentHover, t.border));
 
-    updateServerStatus(m_btnStop->isEnabled(), 0); // re-derive color only; text/port unaffected here
+    if (m_customState)   // e.g. "running in the background service" — re-colour, keep text/buttons
+        showServerState(m_serverStatusLabel->text(), m_stateTone, m_btnStart->isEnabled(),
+                        m_btnStop->isEnabled(), m_btnRestart->isEnabled());
+    else
+        updateServerStatus(m_btnStop->isEnabled(), 0); // re-derive color only; text/port unaffected here
 }
 
 void SettingsPage::updateServerStatus(bool running, quint16 port) {
+    m_customState = false;
     const ThemePalette &t = Theme::current();
     if (running) {
         if (port) m_serverStatusLabel->setText(QString("● Running on port %1").arg(port));
@@ -272,6 +279,19 @@ void SettingsPage::updateServerStatus(bool running, quint16 port) {
         m_btnStop->setEnabled(false);
         m_btnRestart->setEnabled(false);
     }
+}
+
+void SettingsPage::showServerState(const QString &text, StateTone tone,
+                                   bool canStart, bool canStop, bool canRestart) {
+    m_customState = true;
+    m_stateTone = tone;
+    const ThemePalette &t = Theme::current();
+    const QColor c = tone == StateTone::Ok ? t.success : tone == StateTone::Warn ? t.warning : t.danger;
+    m_serverStatusLabel->setText(text);
+    m_serverStatusLabel->setStyleSheet(QString("font-size:13px; font-weight:600; color:%1;").arg(c.name()));
+    m_btnStart->setEnabled(canStart);
+    m_btnStop->setEnabled(canStop);
+    m_btnRestart->setEnabled(canRestart);
 }
 
 void SettingsPage::flashServerAction(const QString &message, bool ok) {
@@ -311,6 +331,8 @@ void SettingsPage::onSave() {
     m_db->setSetting("api_url",        apiUrl);
     m_db->setSetting("api_key",        m_apiKey->text().trimmed());
     m_db->setSetting("institution_id", m_institutionId->text().trimmed());
+    // Tell whichever BioSync process runs the server (service or this window) to reload now.
+    m_db->setSetting("config_rev", QString::number(QDateTime::currentMSecsSinceEpoch()));
 
     // Apply launch-at-startup, and reflect what actually took effect.
     Autostart::setEnabled(m_autoStart->isChecked());
@@ -319,7 +341,7 @@ void SettingsPage::onSave() {
     QMessageBox mb(this);
     mb.setWindowTitle("Settings Saved");
     mb.setText("Settings saved successfully.");
-    mb.setInformativeText("Use Restart in the Server card to apply port changes immediately.");
+    mb.setInformativeText("Changes are applied automatically within a few seconds.");
     mb.setIcon(QMessageBox::Information);
     mb.exec();
 

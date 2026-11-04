@@ -13,8 +13,10 @@ Theme &Theme::instance() {
 
 void Theme::init() {
     apply();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     connect(qApp->styleHints(), &QStyleHints::colorSchemeChanged,
             this, [this](Qt::ColorScheme) { apply(); });
+#endif
 }
 
 // Whether the OS is currently in dark mode. Reads the same registry value Qt's own Windows
@@ -31,7 +33,11 @@ static bool osIsDarkMode() {
     if (personalize.contains("AppsUseLightTheme"))
         return personalize.value("AppsUseLightTheme").toInt() == 0;
 #endif
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     return qApp->styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+#else
+    return false;   // Qt < 6.5 (e.g. Ubuntu's Qt 6.4) can't report the OS scheme: use light
+#endif
 }
 
 // Design tokens mirror ritems/client/web's src/index.css :root variables 1:1 (accent, danger,

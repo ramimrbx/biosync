@@ -1,15 +1,10 @@
 #include "BiometricBackupDialog.h"
 #include "ui/Theme.h"
+#include "../db/Database.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QFrame>
-#include <QNetworkRequest>
-#include <QNetworkReply>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QJsonArray>
-#include <QUrl>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 static QLabel *makeValueLabel(const QString &text = "—") {
@@ -34,27 +29,24 @@ static QFrame *makeDivider() {
 // ── Constructor ───────────────────────────────────────────────────────────────
 BiometricBackupDialog::BiometricBackupDialog(const QString &serial,
                                              const QString &deviceName,
-                                             const QString &apiUrl,
-                                             const QString &apiKey,
-                                             long long      institutionId,
+                                             Database      *db,
+                                             int            commandId,
                                              QWidget       *parent)
     : QDialog(parent),
-      m_serial(serial), m_deviceName(deviceName),
-      m_apiUrl(apiUrl), m_apiKey(apiKey), m_institutionId(institutionId)
+      m_serial(serial), m_deviceName(deviceName), m_db(db), m_commandId(commandId)
 {
     setAttribute(Qt::WA_DeleteOnClose);   // auto-delete when window is closed
 
     m_startedAt = QDateTime::currentDateTime();
-    m_nam = new QNetworkAccessManager(this);
 
-    m_statsTimer = new QTimer(this);
-    m_statsTimer->setInterval(1000);
-    connect(m_statsTimer, &QTimer::timeout, this, &BiometricBackupDialog::onStatsTimer);
+    m_pollTimer = new QTimer(this);
+    m_pollTimer->setInterval(1000);
+    connect(m_pollTimer, &QTimer::timeout, this, &BiometricBackupDialog::onPoll);
 
     buildUi();
-    setStatus("Waiting for device to respond…", Theme::current().warning.name());
-    m_progressBar->setMaximum(0);   // indeterminate pulse while waiting for device
-    m_statsTimer->start();
+    setStatus("Waiting for the device to check in…", Theme::current().warning.name());
+    m_progressBar->setMaximum(0);   // indeterminate pulse while waiting
+    m_pollTimer->start();
 }
 
 void BiometricBackupDialog::buildUi() {
@@ -127,10 +119,8 @@ void BiometricBackupDialog::buildUi() {
 
     m_lblTotal     = makeValueLabel("—");
     m_lblUploaded  = makeValueLabel("0");
-    m_lblSpeed     = makeValueLabel("—");
     m_lblStartedAt = makeValueLabel(m_startedAt.toString("hh:mm:ss"));
     m_lblElapsed   = makeValueLabel("00:00");
-    m_lblEta       = makeValueLabel("—");
 
     int row = 0;
     grid->addWidget(makeCaptionLabel("Total Templates"),      row, 0);
@@ -139,17 +129,11 @@ void BiometricBackupDialog::buildUi() {
     grid->addWidget(makeCaptionLabel("Uploaded"),             row, 0);
     grid->addWidget(m_lblUploaded,                            row, 1); ++row;
     grid->addWidget(makeDivider(),                            row, 0, 1, 2); ++row;
-    grid->addWidget(makeCaptionLabel("Upload Speed"),         row, 0);
-    grid->addWidget(m_lblSpeed,                               row, 1); ++row;
-    grid->addWidget(makeDivider(),                            row, 0, 1, 2); ++row;
     grid->addWidget(makeCaptionLabel("Started At"),           row, 0);
     grid->addWidget(m_lblStartedAt,                           row, 1); ++row;
     grid->addWidget(makeDivider(),                            row, 0, 1, 2); ++row;
     grid->addWidget(makeCaptionLabel("Elapsed"),              row, 0);
-    grid->addWidget(m_lblElapsed,                             row, 1); ++row;
-    grid->addWidget(makeDivider(),                            row, 0, 1, 2); ++row;
-    grid->addWidget(makeCaptionLabel("Estimated Remaining"),  row, 0);
-    grid->addWidget(m_lblEta,                                 row, 1);
+    grid->addWidget(m_lblElapsed,                             row, 1);
 
     // ── Close button ──────────────────────────────────────────────────────────
     m_btnClose = new QPushButton("Close");
@@ -177,134 +161,66 @@ void BiometricBackupDialog::buildUi() {
     root->addWidget(m_btnClose, 0, Qt::AlignRight);
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Progress (polls the queued command in the shared DB) ──────────────────────
 
-void BiometricBackupDialog::startUpload(const QList<BiometricTemplate> &templates) {
-    if (m_uploading || m_finished) return;
+void BiometricBackupDialog::onPoll() {
+    m_lblElapsed->setText(formatDuration(m_startedAt.secsTo(QDateTime::currentDateTime())));
+    if (m_finished) return;
 
-    m_templates = templates;
-    m_total     = templates.size();
-    m_uploaded  = 0;
-    m_uploading = true;
-    m_uploadStartedAt = QDateTime::currentDateTime();
+    const DeviceCommand cmd = m_db->getCommand(m_commandId);
+    if (!cmd.id) { finish(false, "The backup request was lost."); return; }
+    if (cmd.status == m_lastStatus && cmd.status != "sent") return;
+    m_lastStatus = cmd.status;
 
+    if (cmd.status == "pending") {
+        setStatus("Waiting for the device to check in…", Theme::current().warning.name());
+    } else if (cmd.status == "sent") {
+        setStatus(cmd.result == "ack"
+                      ? "Device accepted the request — waiting for its templates…"
+                      : "Request delivered to the device — waiting for its templates…",
+                  Theme::current().warning.name());
+    } else if (cmd.status == "uploading") {
+        m_total = cmd.result.toInt();
+        m_lblTotal->setText(QString::number(m_total));
+        m_lblUploaded->setText(QString("0 / %1").arg(m_total));
+        setStatus(QString("Received %1 template(s) from the device — uploading to the server…").arg(m_total),
+                  Theme::current().accent.name());
+    } else if (cmd.status == "done") {
+        m_total = cmd.result.toInt();
+        finish(true, {});
+    } else if (cmd.status == "failed") {
+        finish(false, cmd.result);
+    }
+}
+
+void BiometricBackupDialog::finish(bool success, const QString &message) {
+    m_finished = true;
+    m_pollTimer->stop();
+    m_lblElapsed->setText(formatDuration(m_startedAt.secsTo(QDateTime::currentDateTime())));
     m_lblTotal->setText(QString::number(m_total));
-    m_progressBar->setMaximum(m_total > 0 ? m_total : 1);
-    m_progressBar->setValue(0);
 
     const ThemePalette &t = Theme::current();
-    if (m_total == 0) {
-        setStatus("No templates found on device.", t.danger.name());
-        finishUpload(false);
-        return;
-    }
-
-    setStatus(QString("Received %1 template(s) from device — uploading to server…").arg(m_total),
-              t.accent.name());
-    doUpload();
-}
-
-// ── Upload — single request for all templates (no artificial limit) ───────────
-
-void BiometricBackupDialog::doUpload() {
-    if (!m_uploading || m_finished) return;
-
-    QJsonArray arr;
-    for (const auto &t : std::as_const(m_templates)) {
-        QJsonObject obj;
-        obj["userPin"]      = t.userPin;
-        obj["fingerIndex"]  = t.fingerIndex;
-        obj["templateData"] = t.templateData;
-        arr.append(obj);
-    }
-
-    QJsonObject payload;
-    payload["deviceSerial"]  = m_serial;
-    payload["deviceName"]    = m_deviceName;
-    payload["institutionId"] = static_cast<qint64>(m_institutionId);
-    payload["templates"]     = arr;
-
-    QNetworkRequest req(QUrl(m_apiUrl + "/api/v1/biosync/templates/backup"));
-    req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    req.setRawHeader("X-BioSync-Key", m_apiKey.toUtf8());
-    req.setTransferTimeout(0);   // no timeout — payload can be very large
-
-    QNetworkReply *reply = m_nam->post(req,
-        QJsonDocument(payload).toJson(QJsonDocument::Compact));
-
-    // Track upload progress via bytesWritten
-    connect(reply, &QNetworkReply::uploadProgress,
-            this,  [this](qint64 sent, qint64 total) {
-        if (total <= 0 || m_total <= 0) return;
-        // Map byte-level upload progress to template count
-        int approx = static_cast<int>(
-            static_cast<double>(sent) / total * m_total);
-        m_uploaded = qMin(approx, m_total - 1);   // stay below total until confirmed
-        m_progressBar->setValue(m_uploaded);
-        m_lblUploaded->setText(QString("%1 / %2").arg(m_uploaded).arg(m_total));
-    });
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        bool ok = (reply->error() == QNetworkReply::NoError && httpStatus == 200);
-        reply->deleteLater();
-
-        m_uploaded = ok ? m_total : m_uploaded;
-        m_progressBar->setValue(m_uploaded);
-        m_lblUploaded->setText(QString("%1 / %2").arg(m_uploaded).arg(m_total));
-
-        finishUpload(ok);
-    });
-}
-
-void BiometricBackupDialog::finishUpload(bool success) {
-    m_uploading = false;
-    m_finished  = true;
-    m_statsTimer->stop();
-
-    // Clear template data from memory now that upload is done
-    m_templates.clear();
-    m_templates.squeeze();
-
-    qint64 elapsed = m_startedAt.secsTo(QDateTime::currentDateTime());
-    m_lblElapsed->setText(formatDuration(elapsed));
-    m_lblEta->setText("—");
-
-    const ThemePalette &t = Theme::current();
+    m_progressBar->setMaximum(1);
+    m_progressBar->setValue(1);
     if (success) {
-        m_progressBar->setMaximum(m_total > 0 ? m_total : 1);
-        m_progressBar->setValue(m_total > 0 ? m_total : 1);
-        setStatus(QString("✓  Backup complete — %1 template(s) uploaded successfully.").arg(m_total),
+        m_lblUploaded->setText(QString("%1 / %1").arg(m_total));
+        setStatus(m_total > 0
+                      ? QString("✓  Backup complete — %1 template(s) uploaded successfully.").arg(m_total)
+                      : QString("✓  Done — the device has no templates to back up."),
                   t.success.name());
         m_progressBar->setStyleSheet(QString(
             "QProgressBar { border:none; border-radius:5px; background:%1; }"
             "QProgressBar::chunk { border-radius:5px; background:%2; }").arg(t.border.name(), t.success.name()));
     } else {
-        setStatus("✕  Upload failed. Check API connection and try again.", t.danger.name());
+        setStatus("✕  Backup failed. " + (message.isEmpty() ? "Check the API connection and try again." : message),
+                  t.danger.name());
         m_progressBar->setStyleSheet(QString(
             "QProgressBar { border:none; border-radius:5px; background:%1; }"
             "QProgressBar::chunk { border-radius:5px; background:%2; }").arg(t.border.name(), t.danger.name()));
     }
 
     m_btnClose->setEnabled(true);
-    emit backupFinished(m_serial, m_uploaded, success);
-}
-
-// ── Stats timer (updates elapsed / speed / ETA every second) ─────────────────
-
-void BiometricBackupDialog::onStatsTimer() {
-    qint64 elapsed = m_startedAt.secsTo(QDateTime::currentDateTime());
-    m_lblElapsed->setText(formatDuration(elapsed));
-
-    if (!m_uploading || m_uploadStartedAt.isNull()) return;
-
-    qint64 uploadElapsed = m_uploadStartedAt.secsTo(QDateTime::currentDateTime());
-    if (uploadElapsed > 0 && m_uploaded > 0) {
-        double speed = static_cast<double>(m_uploaded) / uploadElapsed;
-        m_lblSpeed->setText(QString("%1 templates/sec").arg(speed, 0, 'f', 1));
-        int remaining = m_total - m_uploaded;
-        m_lblEta->setText(formatDuration(static_cast<qint64>(remaining / speed)));
-    }
+    emit backupFinished(m_serial, success ? m_total : 0, success);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

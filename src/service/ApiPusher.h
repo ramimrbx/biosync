@@ -16,10 +16,15 @@ public:
     void pushNow();
     bool isOnline() const { return m_isOnline; }
 
-    // Push biometric templates from a device to the API server.
+    // Only the BioSync process that owns the attendance server pushes punches; a window that is
+    // just showing the background service's status keeps this off so records aren't sent twice.
+    void setAutoPush(bool on) { m_autoPush = on; }
+
+    // Push biometric templates from a device to the API server. done(ok, message) when finished.
     void pushBiometricTemplates(const QString &deviceSerial,
                                 const QString &deviceName,
-                                const QList<BiometricTemplate> &templates);
+                                const QList<BiometricTemplate> &templates,
+                                std::function<void(bool, QString)> done = {});
 
     // Fetch biometric templates for a device from the API server.
     // Invokes callback(templates) when complete; empty list on error.
@@ -45,6 +50,7 @@ private:
     long long m_institutionId = 0;
     bool m_isOnline = false;
     bool m_pushing = false;
+    bool m_autoPush = true;
 
     void checkConnectivity();
     void doPush();

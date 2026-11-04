@@ -5,9 +5,10 @@
 #include <QButtonGroup>
 #include <QAbstractButton>
 #include <QSystemTrayIcon>
+#include <functional>
 #include "db/Database.h"
 #include "model/BiometricTemplate.h"
-#include "server/ZkAdmsServer.h"
+#include "engine/Engine.h"
 #include "service/ApiPusher.h"
 #include "service/DeviceDiscovery.h"
 #include "ui/DevicesPage.h"
@@ -29,14 +30,14 @@ public:
 protected:
     void closeEvent(QCloseEvent *event) override;
 
+public:
+    enum class Tone { Ok, Warn, Error, Muted };   // status-bar colour, resolved from the theme
+
+    // Bring the window to the front (used when BioSync is launched a second time).
+    void showAndRaise();
+
 private slots:
-    void onAttendanceReceived(const QList<AttendanceRecord> &records);
-    void onDeviceHeartbeat(const QString &serial, const QString &ip);
-    void onUnknownDeviceConnected(const QString &serial, const QString &ip);
     void onLogMessage(const QString &deviceSerial, const QString &message);
-    void onApiStatusChanged(bool online, int pendingCount);
-    void onApiRecordsSynced(int count);
-    void onApiLogMessage(const QString &msg);
     void onSettingsSaved();
     void onNavItemChanged(int row);
     void onTrayActivated(QSystemTrayIcon::ActivationReason reason);
@@ -47,8 +48,6 @@ private slots:
     void onRestartDevice(const QString &serial);
     void onBackupTemplates(const QString &serial);
     void onRestoreTemplates(const QString &serial);
-    void onBiometricTemplatesReceived(const QString &serial,
-                                      const QList<BiometricTemplate> &templates);
     void onServerStart();
     void onServerStop();
     void onServerRestart();
@@ -59,9 +58,29 @@ private slots:
     void applyTheme();
 
 private:
+    // Who runs the attendance server right now, from this window's point of view.
+    enum class ServerMode {
+        Starting,
+        Engine,          // this window owns the port (no background service running)
+        Service,         // the BioSync background service owns it; this window mirrors its status
+        ServiceWaiting,  // the service wants the port but something else is holding it
+        Stopped,         // stopped by the user in Settings
+        Conflict         // another (non-BioSync) program holds the port
+    };
+
     Database      *m_db;
-    ZkAdmsServer  *m_server;
-    ApiPusher     *m_pusher;
+    Engine        *m_engine;   // runs only when no background service does
+    ApiPusher     *m_pusher;   // used for fetching templates only — never pushes punches
+
+    ServerMode m_mode = ServerMode::Starting;
+    bool    m_userStopped = false;
+    bool    m_probing = false;
+    QTimer *m_superviseTimer = nullptr;
+    QTimer *m_refreshTimer = nullptr;
+    QNetworkAccessManager *m_probeNam = nullptr;
+    int     m_lastAttendanceId = -1;
+    int     m_lastPending = -1;
+    int     m_lastDeviceCount = -1;
 
     QStackedWidget *m_stack;
     QAbstractButton *m_navBtns[4];
@@ -76,9 +95,6 @@ private:
     QLabel *m_statusPending;
     QLabel *m_statusDot1;
     QLabel *m_statusDot2;
-    bool m_serverRunning = false;
-    quint16 m_serverPort = 0;
-    bool m_apiOnline = false;
 
     DevicesPage    *m_devicesPage;
     AttendancePage *m_attendancePage;
@@ -91,11 +107,15 @@ private:
 
     void setupUi();
     void setupTray();
-    // Returns whether the ADMS server bound its port. On failure, surfaces the error via the
-    // Settings-page toast and a tray notification (see MainWindow.cpp) — a silent failure here
-    // used to mean the only way to notice a bind failure was to go read the Logs page.
-    bool startServer();
     void reloadApiConfig();
+
+    // Every few seconds: decide whether this window should run the server, mirror the service,
+    // or hand the port over. Never fights the background service for the port.
+    void supervise();
+    void probePort(quint16 port, std::function<void(bool isBioSync, QString who)> done);
+    void setMode(ServerMode mode, quint16 port, const QString &detail = {});
+    // Every 2s: refresh device status, punches, pending count and logs from the shared DB.
+    void refreshFromDb();
 
     // Update checking: queries <api_url>/api/v1/app-releases/latest and, if a newer version exists,
     // offers to download + launch the installer. interactive=false stays silent when up to date.
@@ -103,7 +123,8 @@ private:
     void promptAndDownloadUpdate(const QString &version, const QString &changelog,
                                  const QString &downloadUrl, const QString &fileName);
     QNetworkAccessManager *m_updateNam = nullptr;
-    void updateServerStatus(bool running, quint16 port);
-    void syncKnownSerials();
-    int  autoRegisterDevice(const QString &serial, const QString &ip);
+    void setStatusServer(const QString &text, Tone tone);
+    void setStatusApi(const QString &text, Tone tone);
+    Tone m_serverTone = Tone::Muted;
+    Tone m_apiTone = Tone::Muted;
 };

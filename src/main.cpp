@@ -16,6 +16,9 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QTimer>
+#include "Version.h"
+#include <QLocalServer>
+#include <QLocalSocket>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -90,7 +93,7 @@ int main(int argc, char *argv[]) {
     if (headless) {
         QCoreApplication::setApplicationName("BioSync");
         QCoreApplication::setOrganizationName("Right iTech");
-        QCoreApplication::setApplicationVersion("1.1.0");
+        QCoreApplication::setApplicationVersion(BioSync::version());
         QCoreApplication app(argc, argv);
         HeadlessRunner runner;
         if (!runner.start()) return 1;
@@ -107,7 +110,7 @@ int main(int argc, char *argv[]) {
     // running instance and ask the user to close it before replacing files.
     CreateMutexW(nullptr, FALSE, L"BioSyncSingleInstanceMutex");
 #endif
-    QApplication::setApplicationVersion("1.1.0");
+    QApplication::setApplicationVersion(BioSync::version());
     QApplication::setDesktopFileName("biosync");   // matches biosync.desktop
 
     // Fractional Windows scale factors (125%, 150%, ...) render crisp instead of being rounded
@@ -116,6 +119,30 @@ int main(int argc, char *argv[]) {
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
     QApplication app(argc, argv);
+
+    // ── One window per user ──────────────────────────────────────────────────
+    // If a BioSync window is already open (maybe hidden in the tray), just bring it to the front
+    // and exit. Two windows would only fight over the attendance server port.
+    QString user = qEnvironmentVariable("USERNAME");
+    if (user.isEmpty()) user = qEnvironmentVariable("USER");
+    const QString instanceKey = QStringLiteral("BioSyncWindow-") + user;
+    {
+        QLocalSocket other;
+        other.connectToServer(instanceKey);
+        if (other.waitForConnected(500)) {
+            if (!autostart) {   // a silent login launch just exits; a manual launch raises it
+                other.write("show\n");
+                other.waitForBytesWritten(500);
+            }
+            other.disconnectFromServer();
+            return 0;
+        }
+    }
+    QLocalServer::removeServer(instanceKey);   // clear a stale socket left by a crash (Linux)
+    auto *instanceServer = new QLocalServer(&app);
+    instanceServer->setSocketOptions(QLocalServer::UserAccessOption);
+    instanceServer->listen(instanceKey);
+
     app.setStyle("Fusion");
 
 #ifdef Q_OS_LINUX
@@ -161,6 +188,12 @@ int main(int argc, char *argv[]) {
     splash->fadeOutAndClose();
 
     if (!autostart) window.show();
+    QObject::connect(instanceServer, &QLocalServer::newConnection, &window, [&window, instanceServer]() {
+        while (QLocalSocket *c = instanceServer->nextPendingConnection()) {
+            QObject::connect(c, &QLocalSocket::disconnected, c, &QObject::deleteLater);
+            window.showAndRaise();
+        }
+    });
 
     // Set icon on the native window handle (X11 _NET_WM_ICON property)
     if (QWindow *handle = window.windowHandle())

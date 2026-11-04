@@ -154,34 +154,46 @@ void LogsPage::refreshDeviceFilter() {
     m_deviceFilter->blockSignals(false);
 }
 
+void LogsPage::appendStoredLine(const QString &line) {
+    // Re-colorise stored plain-text lines
+    QStringList parts = line.split(" | ");
+    if (parts.size() >= 3) {
+        QString ts  = parts[0].trimmed();
+        QString src = parts[1].trimmed();
+        QString msg = parts.mid(2).join(" | ");
+        QString color = "#C8B8F0";
+        QString lower = msg.toLower();
+        if (lower.contains("heartbeat") || lower.contains("online"))  color = "#6EE7B7";
+        else if (lower.contains("attendance") || lower.contains("record")) color = "#C084FC";
+        else if (lower.contains("error") || lower.contains("fail"))   color = "#FCA5A5";
+        else if (lower.contains("warn") || lower.contains("offline")) color = "#FCD34D";
+
+        m_logView->appendHtml(QString(
+            "<span style='color:#4A3A6A;'>%1</span> "
+            "<span style='color:#8222E3; font-weight:600;'>[%2]</span> "
+            "<span style='color:%3;'>%4</span>")
+            .arg(ts, src, color, msg.toHtmlEscaped()));
+    } else {
+        m_logView->appendHtml(QString("<span style='color:#C8B8F0;'>%1</span>")
+                              .arg(line.toHtmlEscaped()));
+    }
+}
+
 void LogsPage::loadLogs() {
     QString serial = m_deviceFilter->currentData().toString();
+    m_lastLogId = m_db->maxLogId();
     QStringList logs = m_db->getDeviceLogs(serial, 500);
     m_logView->clear();
-    for (const QString &line : logs) {
-        // Re-colorise stored plain-text lines
-        QStringList parts = line.split(" | ");
-        if (parts.size() >= 3) {
-            QString ts  = parts[0].trimmed();
-            QString src = parts[1].trimmed();
-            QString msg = parts.mid(2).join(" | ");
-            QString color = "#C8B8F0";
-            QString lower = msg.toLower();
-            if (lower.contains("heartbeat") || lower.contains("online"))  color = "#6EE7B7";
-            else if (lower.contains("attendance") || lower.contains("record")) color = "#C084FC";
-            else if (lower.contains("error") || lower.contains("fail"))   color = "#FCA5A5";
-            else if (lower.contains("warn") || lower.contains("offline")) color = "#FCD34D";
+    for (const QString &line : logs) appendStoredLine(line);
+    QTextCursor cursor = m_logView->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    m_logView->setTextCursor(cursor);
+}
 
-            m_logView->appendHtml(QString(
-                "<span style='color:#4A3A6A;'>%1</span> "
-                "<span style='color:#8222E3; font-weight:600;'>[%2]</span> "
-                "<span style='color:%3;'>%4</span>")
-                .arg(ts, src, color, msg.toHtmlEscaped()));
-        } else {
-            m_logView->appendHtml(QString("<span style='color:#C8B8F0;'>%1</span>")
-                                  .arg(line.toHtmlEscaped()));
-        }
-    }
+void LogsPage::tail() {
+    const QStringList lines = m_db->getLogsAfter(m_lastLogId, m_deviceFilter->currentData().toString());
+    if (lines.isEmpty()) return;
+    for (const QString &line : lines) appendStoredLine(line);
     QTextCursor cursor = m_logView->textCursor();
     cursor.movePosition(QTextCursor::End);
     m_logView->setTextCursor(cursor);

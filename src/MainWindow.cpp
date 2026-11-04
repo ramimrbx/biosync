@@ -16,6 +16,7 @@
 #include <QProgressDialog>
 #include <QSaveFile>
 #include <QTimer>
+#include <QDateTime>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -97,14 +98,29 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Shared machine-wide DB so the headless boot service reads the config set here in the GUI.
     m_db->open(AppPaths::dbPath());
 
-    m_server = new ZkAdmsServer(this);
+    m_engine = new Engine(m_db, Engine::Role::Gui, this);
     m_pusher = new ApiPusher(m_db, this);
+    m_pusher->setAutoPush(false);   // punches are pushed only by whoever runs the engine
 
     setupUi();
     setupTray();
-    startServer();
     reloadApiConfig();
     connect(&Theme::instance(), &Theme::changed, this, &MainWindow::applyTheme);
+
+    m_probeNam = new QNetworkAccessManager(this);
+
+    m_superviseTimer = new QTimer(this);
+    m_superviseTimer->setInterval(3000);
+    connect(m_superviseTimer, &QTimer::timeout, this, &MainWindow::supervise);
+    m_superviseTimer->start();
+
+    m_refreshTimer = new QTimer(this);
+    m_refreshTimer->setInterval(2000);
+    connect(m_refreshTimer, &QTimer::timeout, this, &MainWindow::refreshFromDb);
+    m_refreshTimer->start();
+
+    supervise();
+    refreshFromDb();
 
     // Auto-check for a newer version shortly after launch (silent when already up to date),
     // then once a day while the app stays open.
@@ -237,19 +253,19 @@ void MainWindow::setupUi() {
     applyTheme();
 
     // ── Signal connections ───────────────────────────────────────────────────
-    connect(m_server, &ZkAdmsServer::attendanceReceived,     this, &MainWindow::onAttendanceReceived);
-    connect(m_server, &ZkAdmsServer::deviceHeartbeat,        this, &MainWindow::onDeviceHeartbeat);
-    connect(m_server, &ZkAdmsServer::unknownDeviceConnected, this, &MainWindow::onUnknownDeviceConnected);
-    connect(m_server, &ZkAdmsServer::logMessage,             this, &MainWindow::onLogMessage);
-    connect(m_server, &ZkAdmsServer::biometricTemplatesReceived,
-            this, &MainWindow::onBiometricTemplatesReceived);
-
-    connect(m_pusher, &ApiPusher::statusChanged,  this, &MainWindow::onApiStatusChanged);
-    connect(m_pusher, &ApiPusher::recordsSynced,  this, &MainWindow::onApiRecordsSynced);
-    connect(m_pusher, &ApiPusher::logMessage,     this, &MainWindow::onApiLogMessage);
+    // Engine events (only fire while this window runs the server) — just make the UI snappier;
+    // everything is also in the shared DB, which refreshFromDb() mirrors either way.
+    connect(m_engine, &Engine::attendanceStored, this, [this](int) { refreshFromDb(); });
+    connect(m_engine, &Engine::deviceRegistered, this, [this](const QString &serial, const QString &ip) {
+        m_devicesPage->refresh();
+        m_logsPage->refreshDeviceFilter();
+        m_trayIcon->showMessage("BioSync — New Device Detected",
+            QString("Device %1 (%2) registered automatically.").arg(serial, ip),
+            QSystemTrayIcon::Information, 4000);
+    });
 
     connect(m_devicesPage, &DevicesPage::devicesChanged, this, [this]() {
-        syncKnownSerials();
+        m_db->setSetting("config_rev", QString::number(QDateTime::currentMSecsSinceEpoch()));
         m_logsPage->refreshDeviceFilter();
     });
     connect(m_devicesPage,  &DevicesPage::scanNetworkRequested,   this, &MainWindow::onScanNetwork);
@@ -290,8 +306,8 @@ void MainWindow::applyTheme() {
 
     for (int i = 0; i < 4; ++i) m_navBtns[i]->update();
 
-    updateServerStatus(m_serverRunning, m_serverPort);
-    onApiStatusChanged(m_apiOnline, m_db->getPendingCount());
+    setStatusServer(m_statusServer->text(), m_serverTone);
+    setStatusApi(m_statusApi->text(), m_apiTone);
 
     if (m_trayIcon) {
         auto *trayMenu = m_trayIcon->contextMenu();
@@ -325,7 +341,7 @@ void MainWindow::setupTray() {
 
     auto *trayMenu = new QMenu(this);
     trayMenu->addAction(Icons::icon(Icons::Glyph::TrayShow, Theme::current().textPrimary, 16),
-                         "Show BioSync", this, &QWidget::show);
+                         "Show BioSync", this, &MainWindow::showAndRaise);
     trayMenu->addSeparator();
     trayMenu->addAction(Icons::icon(Icons::Glyph::Quit, Theme::current().danger, 16),
                          "Quit", qApp, &QApplication::quit);
@@ -335,22 +351,10 @@ void MainWindow::setupTray() {
     m_trayIcon->show();
 }
 
-bool MainWindow::startServer() {
-    syncKnownSerials();
-    quint16 port = static_cast<quint16>(m_db->getSetting("server_port", "8085").toUShort());
-    bool ok = m_server->start(port);
-    updateServerStatus(ok, port);
-    m_settingsPage->updateServerStatus(ok, port);
-
-    if (!ok) {
-        const QString msg = QString("Attendance server failed to start on port %1 — %2")
-                                 .arg(port).arg(m_server->lastError());
-        m_settingsPage->flashServerAction(msg, false);
-        if (m_trayIcon && m_trayIcon->isVisible())
-            m_trayIcon->showMessage("BioSync — Server Failed to Start", msg,
-                QSystemTrayIcon::Warning, 5000);
-    }
-    return ok;
+void MainWindow::showAndRaise() {
+    if (isMinimized()) showNormal(); else show();
+    raise();
+    activateWindow();
 }
 
 void MainWindow::reloadApiConfig() {
@@ -360,72 +364,178 @@ void MainWindow::reloadApiConfig() {
     m_pusher->setConfig(apiUrl, apiKey, instId);
 }
 
-void MainWindow::syncKnownSerials() {
-    QSet<QString> serials;
-    for (const Device &d : m_db->getAllDevices())
-        serials.insert(d.serialNumber);
-    m_server->setKnownSerials(serials);
+// ── Server ownership ─────────────────────────────────────────────────────────
+
+void MainWindow::supervise() {
+    const quint16 port = static_cast<quint16>(m_db->getSetting("server_port", "8085").toUShort());
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const bool serviceWaiting = now - m_db->getSetting("service_waiting", "0").toLongLong() < 10000;
+
+    if (m_engine->isRunning()) {
+        if (serviceWaiting) {
+            // The background service started and wants the port: it is the preferred owner (it
+            // keeps running when this window is closed), so hand over. It binds within seconds.
+            onLogMessage({}, "BioSync background service is starting — handing the attendance server over to it.");
+            m_engine->stop();
+            setMode(ServerMode::Service, port);
+        } else {
+            setMode(ServerMode::Engine, m_engine->port());
+        }
+        return;
+    }
+
+    if (m_userStopped) { setMode(ServerMode::Stopped, 0); return; }
+    if (m_probing) return;
+
+    // Before touching the port, ask whoever is on it whether it is BioSync. If it is (normally the
+    // background service), just mirror it — never try to bind and never report "address in use".
+    probePort(port, [this, port, serviceWaiting](bool isBioSync, QString who) {
+        if (m_engine->isRunning() || m_userStopped) return;
+        if (isBioSync) { setMode(ServerMode::Service, port, who); return; }
+        if (serviceWaiting) { setMode(ServerMode::ServiceWaiting, port); return; }
+        // The service is alive but briefly not listening (restarting / switching port): leave the
+        // port to it. Only take over once its heartbeat has stopped, i.e. it is really gone.
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (m_db->getSetting("engine_role") == "service" &&
+            now - m_db->getSetting("engine_heartbeat", "0").toLongLong() < 3 * Engine::HEARTBEAT_MS) {
+            setMode(ServerMode::Service, port);
+            return;
+        }
+        if (m_engine->start()) { setMode(ServerMode::Engine, port); return; }
+        setMode(ServerMode::Conflict, port, m_engine->lastErrorString());
+    });
 }
 
-int MainWindow::autoRegisterDevice(const QString &serial, const QString &ip) {
-    Device d;
-    d.name         = QString("Device %1").arg(serial);
-    d.serialNumber = serial;
-    d.ipAddress    = ip;
-    d.port         = 4370;
-    d.isActive     = true;
-    int id = m_db->addDevice(d);
-    if (id > 0) {
-        m_server->addKnownSerial(serial);
+void MainWindow::probePort(quint16 port, std::function<void(bool, QString)> done) {
+    m_probing = true;
+    QNetworkRequest req(QUrl(QString("http://127.0.0.1:%1/biosync/ping").arg(port)));
+    req.setTransferTimeout(1500);
+    QNetworkReply *reply = m_probeNam->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, done]() {
+        reply->deleteLater();
+        m_probing = false;
+        const QString body = QString::fromUtf8(reply->readAll()).trimmed();
+        const bool isBioSync = reply->error() == QNetworkReply::NoError && body.startsWith("BIOSYNC/");
+        done(isBioSync, body);
+    });
+}
+
+static QColor toneColor(MainWindow::Tone tone) {
+    const ThemePalette &t = Theme::current();
+    switch (tone) {
+    case MainWindow::Tone::Ok:    return t.success;
+    case MainWindow::Tone::Warn:  return t.warning;
+    case MainWindow::Tone::Error: return t.danger;
+    default:                      return t.textSecondary;
+    }
+}
+
+void MainWindow::setStatusServer(const QString &text, Tone tone) {
+    m_serverTone = tone;
+    m_statusServer->setText(text);
+    m_statusServer->setStyleSheet(QString("color:%1; font-weight:600;").arg(toneColor(tone).name()));
+}
+
+void MainWindow::setStatusApi(const QString &text, Tone tone) {
+    m_apiTone = tone;
+    m_statusApi->setText(text);
+    m_statusApi->setStyleSheet(QString("color:%1; font-weight:600;").arg(toneColor(tone).name()));
+}
+
+void MainWindow::setMode(ServerMode mode, quint16 port, const QString &detail) {
+    const bool changed = mode != m_mode;
+    m_mode = mode;
+    const QString p = QString::number(port);
+
+    switch (mode) {
+    case ServerMode::Starting:
+        break;
+    case ServerMode::Engine:
+        setStatusServer(QString("● Server on :%1").arg(p), Tone::Ok);
+        m_settingsPage->updateServerStatus(true, port);
+        if (changed) onLogMessage({}, QString("Attendance server is running in this window on port %1 "
+                                              "(no background service is running).").arg(p));
+        break;
+    case ServerMode::Service:
+        setStatusServer(QString("● Background service on :%1").arg(p), Tone::Ok);
+        m_settingsPage->showServerState(
+            QString("● Running in the BioSync background service on port %1").arg(p), SettingsPage::StateTone::Ok,
+            /*start*/false, /*stop*/false, /*restart*/true);
+        if (changed) onLogMessage({}, QString("The BioSync background service is running the attendance "
+                                              "server on port %1 — this window shows its live status.").arg(p));
+        break;
+    case ServerMode::ServiceWaiting:
+        setStatusServer(QString("⚠ Waiting for port %1").arg(p), Tone::Warn);
+        m_settingsPage->showServerState(
+            QString("⚠ Background service is waiting for port %1 — another program is using it").arg(p),
+            SettingsPage::StateTone::Warn, false, false, false);
+        if (changed) onLogMessage({}, QString("Port %1 is used by another program; the BioSync background "
+                                              "service will start as soon as it is free. Change the port in "
+                                              "Settings if this persists.").arg(p));
+        break;
+    case ServerMode::Stopped:
+        setStatusServer("✕ Server stopped", Tone::Error);
+        m_settingsPage->updateServerStatus(false, 0);
+        break;
+    case ServerMode::Conflict:
+        setStatusServer(QString("✕ Port %1 used by another program").arg(p), Tone::Error);
+        m_settingsPage->showServerState(
+            QString("✕ Port %1 is used by another program (not BioSync)").arg(p), SettingsPage::StateTone::Error,
+            /*start*/true, false, false);
+        if (changed) onLogMessage({}, QString("Attendance server can't start: port %1 is used by another "
+                                              "program (%2). Close it or choose a different port in Settings.")
+                                              .arg(p, detail));
+        break;
+    }
+}
+
+// ── Live view of the shared DB ───────────────────────────────────────────────
+
+void MainWindow::refreshFromDb() {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    // Devices: online = seen by the server owner within the last 2 minutes.
+    const QList<Device> devices = m_db->getAllDevices();
+    if (devices.size() != m_lastDeviceCount) {
+        m_lastDeviceCount = devices.size();
         m_devicesPage->refresh();
         m_logsPage->refreshDeviceFilter();
+        for (auto it = m_deviceOnlineMap.begin(); it != m_deviceOnlineMap.end(); ++it)
+            m_devicesPage->markDeviceOnline(it.key(), it.value());
     }
-    return id;
-}
+    const auto seen = m_db->getDeviceSeen();
+    for (const Device &d : devices) {
+        const auto it = seen.constFind(d.serialNumber);
+        const bool online = d.isActive && it != seen.constEnd() && now - it->lastSeenMs < 120000;
+        if (online != m_deviceOnlineMap.value(d.serialNumber, false)) {
+            m_deviceOnlineMap[d.serialNumber] = online;
+            m_devicesPage->markDeviceOnline(d.serialNumber, online);
+        }
+        if (it != seen.constEnd()) m_devicesPage->setDeviceSocketIp(d.serialNumber, it->ip);
+    }
 
-void MainWindow::updateServerStatus(bool running, quint16 port) {
-    m_serverRunning = running;
-    m_serverPort = port;
-    const ThemePalette &t = Theme::current();
-    if (running) {
-        m_statusServer->setText(QString("● Server on :%1").arg(port));
-        m_statusServer->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.success.name()));
+    // Punches + pending count.
+    const int maxId = m_db->maxAttendanceId();
+    const int pending = m_db->getPendingCount();
+    if (maxId != m_lastAttendanceId || pending != m_lastPending) {
+        m_lastAttendanceId = maxId;
+        m_lastPending = pending;
+        if (m_stack->currentWidget() == m_attendancePage) m_attendancePage->refresh();
+    }
+    m_statusPending->setText(QString("%1 pending").arg(pending));
+
+    // API status, as last seen by whoever runs the engine.
+    const bool engineAlive =
+        now - m_db->getSetting("engine_heartbeat", "0").toLongLong() < 3 * Engine::HEARTBEAT_MS;
+    if (!engineAlive) {
+        setStatusApi("○ API idle", Tone::Muted);
+    } else if (m_db->getSetting("api_online") == "1") {
+        setStatusApi("● API connected", Tone::Ok);
     } else {
-        m_statusServer->setText("✕ Server stopped");
-        m_statusServer->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.danger.name()));
+        setStatusApi("○ API offline", Tone::Warn);
     }
-}
 
-void MainWindow::onAttendanceReceived(const QList<AttendanceRecord> &records) {
-    for (auto r : records) {
-        Device d = m_db->getDeviceBySerial(r.deviceSerial);
-        if (d.id && !d.isActive) continue;  // skip deactivated devices
-        if (!d.name.isEmpty()) r.deviceName = d.name;
-        int id = m_db->addAttendanceRecord(r);
-        if (id > 0) { r.id = id; m_attendancePage->prependRecord(r); }
-    }
-    m_pusher->pushNow();
-    m_statusPending->setText(QString("%1 pending").arg(m_db->getPendingCount()));
-}
-
-void MainWindow::onDeviceHeartbeat(const QString &serial, const QString &ip) {
-    bool wasOnline = m_deviceOnlineMap.value(serial, false);
-    m_deviceOnlineMap[serial] = true;
-    m_devicesPage->markDeviceOnline(serial, true);
-    m_devicesPage->setDeviceSocketIp(serial, ip);
-    if (!wasOnline)
-        onLogMessage(serial, QString("Device came online from %1").arg(ip));
-    m_db->appendLog(serial, QString("Heartbeat from %1").arg(ip));
-}
-
-void MainWindow::onUnknownDeviceConnected(const QString &serial, const QString &ip) {
-    onLogMessage(serial, QString("New device detected SN=%1 from %2 — auto-registering.").arg(serial, ip));
-    int id = autoRegisterDevice(serial, ip);
-    if (id > 0) {
-        m_trayIcon->showMessage("BioSync — New Device Detected",
-            QString("Device %1 (%2) registered automatically.").arg(serial, ip),
-            QSystemTrayIcon::Information, 4000);
-    }
+    m_logsPage->tail();
 }
 
 void MainWindow::onScanNetwork() {
@@ -437,9 +547,10 @@ void MainWindow::onScanNetwork() {
     if (dlg.exec() == QDialog::Accepted) {
         int added = 0;
         for (const Device &d : dlg.selectedDevices()) {
-            if (m_db->addDevice(d) > 0) { m_server->addKnownSerial(d.serialNumber); added++; }
+            if (m_db->addDevice(d) > 0) added++;
         }
         if (added > 0) {
+            m_db->setSetting("config_rev", QString::number(QDateTime::currentMSecsSinceEpoch()));
             m_devicesPage->refresh();
             m_logsPage->refreshDeviceFilter();
             QMessageBox::information(this, "Devices Added",
@@ -448,32 +559,16 @@ void MainWindow::onScanNetwork() {
     }
 }
 
+// Logs go to the shared DB; the Logs page tails it (so service and window logs both show up).
 void MainWindow::onLogMessage(const QString &deviceSerial, const QString &message) {
-    m_logsPage->appendLog(deviceSerial, message);
     m_db->appendLog(deviceSerial, message);
+    m_logsPage->tail();
 }
 
-void MainWindow::onApiStatusChanged(bool online, int pendingCount) {
-    m_apiOnline = online;
-    const ThemePalette &t = Theme::current();
-    if (online) {
-        m_statusApi->setText("● API connected");
-        m_statusApi->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.success.name()));
-    } else {
-        m_statusApi->setText("○ API offline");
-        m_statusApi->setStyleSheet(QString("color:%1; font-weight:600;").arg(t.warning.name()));
-    }
-    m_statusPending->setText(QString("%1 pending").arg(pendingCount));
+void MainWindow::onSettingsSaved() {
+    reloadApiConfig();
+    supervise();   // a port change takes effect right away
 }
-
-void MainWindow::onApiRecordsSynced(int) {
-    m_statusPending->setText(QString("%1 pending").arg(m_db->getPendingCount()));
-    m_attendancePage->refresh();
-}
-
-void MainWindow::onApiLogMessage(const QString &msg) { onLogMessage({}, msg); }
-
-void MainWindow::onSettingsSaved() { reloadApiConfig(); }
 
 void MainWindow::onActivateDevice(int deviceId) {
     Device d = m_db->getDevice(deviceId);
@@ -500,16 +595,19 @@ void MainWindow::onDeactivateDevice(int deviceId) {
 void MainWindow::onReconnectDevice(const QString &serial) {
     // Mark device offline so it re-registers on next heartbeat
     m_deviceOnlineMap[serial] = false;
+    m_db->clearDeviceSeen(serial);
     m_devicesPage->markDeviceOnline(serial, false);
     onLogMessage(serial, QString("Reconnect requested for SN=%1 — marked offline, waiting for re-connect.").arg(serial));
 }
 
 void MainWindow::onRestartDevice(const QString &serial) {
     // Queue a REBOOT command delivered on the device's next heartbeat poll
-    m_server->queueCommand(serial, "REBOOT");
+    // Queued in the shared DB: whichever BioSync process runs the server delivers it.
+    m_db->queueDeviceCommand(serial, "REBOOT");
     m_deviceOnlineMap[serial] = false;
+    m_db->clearDeviceSeen(serial);
     m_devicesPage->markDeviceOnline(serial, false);
-    onLogMessage(serial, QString("Restart command queued for SN=%1.").arg(serial));
+    onLogMessage(serial, QString("Restart command queued for SN=%1 — delivered on its next poll.").arg(serial));
     m_trayIcon->showMessage("BioSync — Device Restart",
         QString("Restart command sent to device %1.").arg(serial),
         QSystemTrayIcon::Information, 3000);
@@ -523,11 +621,16 @@ void MainWindow::onBackupTemplates(const QString &serial) {
     }
 
     Device d = m_db->getDeviceBySerial(serial);
-    QString apiUrl = m_db->getSetting("api_url");
-    QString apiKey = m_db->getSetting("api_key");
-    long long instId = m_db->getSetting("institution_id", "0").toLongLong();
 
-    auto *dlg = new BiometricBackupDialog(serial, d.name, apiUrl, apiKey, instId, this);
+    // Queue the ADMS DATA QUERY in the shared DB; the server owner delivers it, receives the
+    // templates and uploads them. The dialog follows that command's progress.
+    const int cmdId = m_db->queueDeviceCommand(serial, "DATA QUERY FINGERTMP");
+    if (cmdId <= 0) {
+        QMessageBox::warning(this, "Biometric Backup", "Could not queue the backup request.");
+        return;
+    }
+
+    auto *dlg = new BiometricBackupDialog(serial, d.name, m_db, cmdId, this);
     m_backupDialogs[serial] = dlg;
 
     connect(dlg, &BiometricBackupDialog::backupFinished,
@@ -542,30 +645,8 @@ void MainWindow::onBackupTemplates(const QString &serial) {
 
     dlg->show();
 
-    // Queue the ADMS DATA QUERY — templates will arrive on device's next poll
-    m_server->queueBiometricQuery(serial);
     onLogMessage(serial, QString("Biometric backup initiated for SN=%1 — "
                                  "waiting for device to upload templates.").arg(serial));
-}
-
-void MainWindow::onBiometricTemplatesReceived(const QString &serial,
-                                               const QList<BiometricTemplate> &templates)
-{
-    onLogMessage(serial, QString("Received %1 biometric template(s) from SN=%2.")
-                 .arg(templates.size()).arg(serial));
-
-    if (m_backupDialogs.contains(serial)) {
-        // Dialog is open — let it handle the upload with progress display
-        m_backupDialogs[serial]->startUpload(templates);
-    } else {
-        // No dialog (e.g. queried while app was backgrounded) — push silently
-        Device d = m_db->getDeviceBySerial(serial);
-        m_pusher->pushBiometricTemplates(serial, d.name, templates);
-        m_trayIcon->showMessage("BioSync — Backup Complete",
-            QString("Backed up %1 biometric template(s) from device %2.")
-                .arg(templates.size()).arg(serial),
-            QSystemTrayIcon::Information, 4000);
-    }
 }
 
 void MainWindow::onRestoreTemplates(const QString &serial) {
@@ -592,7 +673,10 @@ void MainWindow::onRestoreTemplates(const QString &serial) {
             onLogMessage(serial, QString("Restore cancelled — no templates on server for SN=%1.").arg(serial));
             return;
         }
-        m_server->queueBiometricRestore(serial, templates);
+        m_db->queueDeviceCommand(serial, "DATA UPDATE FINGERTMP",
+                                 ZkAdmsServer::buildTemplateRestoreBody(templates));
+        onLogMessage(serial, QString("Restore of %1 template(s) queued for SN=%2.")
+                                 .arg(templates.size()).arg(serial));
         m_trayIcon->showMessage("BioSync — Restore Queued",
             QString("%1 template(s) will be pushed to device %2 on next poll.")
                 .arg(templates.size()).arg(serial),
@@ -601,35 +685,38 @@ void MainWindow::onRestoreTemplates(const QString &serial) {
 }
 
 void MainWindow::onServerStart() {
-    if (m_server->isRunning()) return;
-    // startServer() already flashes + tray-notifies on failure; only success needs a message here.
-    if (startServer())
-        m_settingsPage->flashServerAction(
-            QString("Attendance server started on port %1.").arg(m_server->port()), true);
+    m_userStopped = false;
+    supervise();
 }
 
 void MainWindow::onServerStop() {
-    m_server->stop();
-    updateServerStatus(false, 0);
-    m_settingsPage->updateServerStatus(false, 0);
-    m_settingsPage->flashServerAction("Attendance server stopped.", true);
-    // Mark all devices offline
-    for (const QString &serial : m_deviceOnlineMap.keys()) {
-        m_deviceOnlineMap[serial] = false;
-        m_devicesPage->markDeviceOnline(serial, false);
-    }
+    if (!m_engine->isRunning()) return;   // the background service can't be stopped from here
+    m_userStopped = true;
+    m_engine->stop();
+    setMode(ServerMode::Stopped, 0);
 }
 
 void MainWindow::onServerRestart() {
+    if (m_mode == ServerMode::Service) {
+        // The background service restarts its own server when it sees this (within ~2s).
+        m_db->setSetting("engine_restart_request", QString::number(QDateTime::currentMSecsSinceEpoch()));
+        const QString msg = "Restart sent to the BioSync background service.";
+        m_settingsPage->flashServerAction(msg, true);
+        onLogMessage({}, msg);
+        return;
+    }
+
     m_settingsPage->flashServerAction("Restarting attendance server…", true);
-    onServerStop();
-    const bool ok = startServer();
-    const quint16 port = m_server->port();
-    const QString msg = ok
-        ? QString("Attendance server restarted on port %1.").arg(port)
-        : QString("Attendance server failed to restart — %1").arg(m_server->lastError());
+    m_engine->stop();
+    m_userStopped = false;
+    const bool ok = m_engine->start();
+    const quint16 port = m_engine->port();
+    if (ok) setMode(ServerMode::Engine, port);
+    else supervise();
+    const QString msg = ok ? QString("Attendance server restarted on port %1.").arg(port)
+                           : "Attendance server failed to restart — check the port setting.";
     m_settingsPage->flashServerAction(msg, ok);
-    onApiLogMessage(msg);
+    onLogMessage({}, msg);
     if (m_trayIcon && m_trayIcon->isVisible())
         m_trayIcon->showMessage("BioSync — Server Restart", msg,
             ok ? QSystemTrayIcon::Information : QSystemTrayIcon::Warning, 3000);
@@ -643,7 +730,7 @@ void MainWindow::onNavItemChanged(int row) {
 }
 
 void MainWindow::onTrayActivated(QSystemTrayIcon::ActivationReason reason) {
-    if (reason == QSystemTrayIcon::DoubleClick) { show(); raise(); activateWindow(); }
+    if (reason == QSystemTrayIcon::DoubleClick) showAndRaise();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {

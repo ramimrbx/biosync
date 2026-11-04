@@ -3,6 +3,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QSet>
+#include <QTimer>
 
 ZkAdmsServer::ZkAdmsServer(QObject *parent) : QObject(parent) {}
 
@@ -15,26 +16,33 @@ void ZkAdmsServer::addKnownSerial(const QString &serial) {
 }
 
 bool ZkAdmsServer::start(quint16 port) {
-    m_server = new QTcpServer(this);
-    connect(m_server, &QTcpServer::newConnection, this, &ZkAdmsServer::onNewConnection);
+    if (isRunning()) return true;
+    if (!m_server) {
+        m_server = new QTcpServer(this);
+        connect(m_server, &QTcpServer::newConnection, this, &ZkAdmsServer::onNewConnection);
+    }
 
     if (!m_server->listen(QHostAddress::AnyIPv4, port)) {
-        m_lastError = m_server->errorString();
-        emit logMessage({}, QString("Failed to start server on port %1: %2")
-                        .arg(port).arg(m_lastError));
+        m_lastError       = m_server->serverError();
+        m_lastErrorString = m_server->errorString();
+        // Not logged here: the caller knows whether this is a real problem or just the normal
+        // hand-over between the BioSync window and the background service, and logs accordingly.
         return false;
     }
 
-    m_lastError.clear();
+    m_lastError = QAbstractSocket::UnknownSocketError;
+    m_lastErrorString.clear();
     emit logMessage({}, QString("ZKTeco ADMS server started on port %1").arg(port));
     return true;
 }
 
 void ZkAdmsServer::stop() {
-    if (m_server) {
-        m_server->close();
-        emit logMessage({}, "ZKTeco ADMS server stopped.");
-    }
+    if (!m_server || !m_server->isListening()) return;
+    m_server->close();
+    // Drop any open device connections now (RST) so nothing keeps the port busy after we stop.
+    const auto sockets = m_buffers.keys();
+    for (QTcpSocket *s : sockets) s->abort();
+    emit logMessage({}, "ZKTeco ADMS server stopped.");
 }
 
 bool ZkAdmsServer::isRunning() const {
@@ -42,30 +50,11 @@ bool ZkAdmsServer::isRunning() const {
 }
 
 quint16 ZkAdmsServer::port() const {
-    return m_server ? m_server->serverPort() : 0;
+    return isRunning() ? m_server->serverPort() : 0;
 }
 
-// ── Command queue ─────────────────────────────────────────────────────────────
-
-void ZkAdmsServer::queueCommand(const QString &serial, const QString &command) {
-    m_commandQueues[serial].enqueue({command, {}});
-    emit logMessage(serial, QString("Command queued for SN=%1: %2").arg(serial, command));
-}
-
-void ZkAdmsServer::queueBiometricQuery(const QString &serial) {
-    m_commandQueues[serial].enqueue({"DATA QUERY FINGERTMP", {}});
-    emit logMessage(serial, QString("Biometric query queued for SN=%1 — device will upload templates on next poll.").arg(serial));
-}
-
-void ZkAdmsServer::queueBiometricRestore(const QString &serial,
-                                          const QList<BiometricTemplate> &templates)
-{
-    if (templates.isEmpty()) {
-        emit logMessage(serial, QString("Restore skipped for SN=%1 — no templates found.").arg(serial));
-        return;
-    }
-
-    // Build the DATA UPDATE body: Pin=x\tFId=y\tTmp=z\tSize=n\tValid=1
+QString ZkAdmsServer::buildTemplateRestoreBody(const QList<BiometricTemplate> &templates) {
+    // Pin=x\tFId=y\tTmp=z\tSize=n\tValid=1 per line
     QStringList lines;
     for (const auto &t : templates) {
         lines << QString("Pin=%1\tFId=%2\tTmp=%3\tSize=%4\tValid=%5")
@@ -75,10 +64,7 @@ void ZkAdmsServer::queueBiometricRestore(const QString &serial,
                      .arg(t.templateSize)
                      .arg(t.valid ? 1 : 0);
     }
-
-    m_commandQueues[serial].enqueue({"DATA UPDATE FINGERTMP", lines.join("\n")});
-    emit logMessage(serial, QString("Biometric restore queued for SN=%1 — %2 template(s) will be pushed on next poll.")
-                    .arg(serial).arg(templates.size()));
+    return lines.join("\n");
 }
 
 // ── TCP server ────────────────────────────────────────────────────────────────
@@ -96,31 +82,46 @@ void ZkAdmsServer::onReadyRead() {
     QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
     if (!socket) return;
 
-    m_buffers[socket].append(socket->readAll());
     QByteArray &buf = m_buffers[socket];
+    buf.append(socket->readAll());
 
-    int headerEnd = buf.indexOf("\r\n\r\n");
-    if (headerEnd < 0) return;
+    // Guard against a client that never stops sending.
+    static constexpr qsizetype MAX_REQUEST = 64 * 1024 * 1024;
+    if (buf.size() > MAX_REQUEST) { socket->abort(); return; }
 
-    QString headers = QString::fromLatin1(buf.left(headerEnd));
-    int contentLength = 0;
-    for (const QString &line : headers.split("\r\n")) {
-        if (line.toLower().startsWith("content-length:")) {
-            contentLength = line.mid(15).trimmed().toInt();
-            break;
+    bool handled = false;
+    for (;;) {
+        const int headerEnd = buf.indexOf("\r\n\r\n");
+        if (headerEnd < 0) break;
+
+        int contentLength = 0;
+        const QString headers = QString::fromLatin1(buf.left(headerEnd));
+        for (const QString &line : headers.split("\r\n")) {
+            if (line.toLower().startsWith("content-length:")) {
+                contentLength = line.mid(15).trimmed().toInt();
+                break;
+            }
         }
+
+        const int total = headerEnd + 4 + contentLength;
+        if (buf.size() < total) break;
+
+        ParsedRequest req = parseHttpRequest(buf.left(total));
+        buf.remove(0, total);
+        if (req.valid) handleRequest(socket, req);
+        handled = true;
     }
 
-    int bodyStart = headerEnd + 4;
-    if (buf.size() < bodyStart + contentLength) return;
-
-    ParsedRequest req = parseHttpRequest(buf.left(bodyStart + contentLength));
-    if (req.valid) handleRequest(socket, req);
-
-    m_buffers[socket].clear();
-    socket->disconnectFromHost();
+    if (handled) {
+        // We answer with "Connection: close", so the device closes its end. Let it: when the
+        // server side closes first, every connection leaves a TIME_WAIT on our port, which on
+        // Windows stops the port from being reopened for minutes ("address already in use").
+        // If the device lingers, reset the connection (RST leaves no TIME_WAIT).
+        QTimer::singleShot(10000, socket, [socket]() {
+            if (socket->state() != QAbstractSocket::UnconnectedState) socket->abort();
+        });
+    }
 }
-
 void ZkAdmsServer::onSocketDisconnected() {
     QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
     if (socket) {
@@ -171,6 +172,11 @@ ParsedRequest ZkAdmsServer::parseHttpRequest(const QByteArray &data) {
 // ── Request dispatch ──────────────────────────────────────────────────────────
 
 void ZkAdmsServer::handleRequest(QTcpSocket *socket, const ParsedRequest &req) {
+    if (req.method == "GET" && req.path == "/biosync/ping") {
+        sendResponse(socket, 200, m_identity);
+        return;
+    }
+
     QString serial = queryParam(req, "SN");
     QString ip     = socket->peerAddress().toString();
 
@@ -186,6 +192,8 @@ void ZkAdmsServer::handleRequest(QTcpSocket *socket, const ParsedRequest &req) {
         handleAttendancePost(socket, req);
     } else if (req.method == "POST" && req.path.startsWith("/iclock/deviceinfo")) {
         handleDeviceInfo(socket, req);
+    } else if (req.method == "POST" && req.path.startsWith("/iclock/devicecmd")) {
+        handleDeviceCmdResult(socket, req);
     } else {
         // Log unknown paths — helps identify device-specific endpoints
         emit logMessage(serial, QString("SN=%1: %2 %3 (%4 bytes) — unhandled, responding OK.")
@@ -198,10 +206,10 @@ void ZkAdmsServer::handleGetRequest(QTcpSocket *socket, const ParsedRequest &req
     QString serial = queryParam(req, "SN");
     emit logMessage(serial, QString("Heartbeat from device SN=%1").arg(serial));
 
-    // Deliver next pending command if any
-    if (m_commandQueues.contains(serial) && !m_commandQueues[serial].isEmpty()) {
-        QueuedCommand cmd = m_commandQueues[serial].dequeue();
-        QString responseBody = QString("C:%1:%2").arg(m_commandId++).arg(cmd.command);
+    // Deliver the next pending command, if any
+    QueuedCommand cmd;
+    if (!serial.isEmpty() && m_commandProvider && m_commandProvider(serial, cmd)) {
+        QString responseBody = QString("C:%1:%2").arg(cmd.id).arg(cmd.command);
         if (!cmd.body.isEmpty())
             responseBody += "\n" + cmd.body;
         emit logMessage(serial, QString("Delivering command to SN=%1: %2").arg(serial, cmd.command));
@@ -284,6 +292,25 @@ void ZkAdmsServer::handleDeviceInfo(QTcpSocket *socket, const ParsedRequest &req
     QString serial = queryParam(req, "SN");
     QString body   = QString::fromLatin1(req.body).trimmed();
     emit logMessage(serial, QString("Device info from SN=%1: %2").arg(serial, body.left(200)));
+    sendResponse(socket, 200, "OK");
+}
+
+void ZkAdmsServer::handleDeviceCmdResult(QTcpSocket *socket, const ParsedRequest &req) {
+    // Body: one line per executed command, e.g. "ID=12&Return=0&CMD=REBOOT"
+    const QString serial = queryParam(req, "SN");
+    for (const QString &rawLine : QString::fromLatin1(req.body).split('\n')) {
+        const QString line = rawLine.trimmed();
+        if (line.isEmpty()) continue;
+        QUrlQuery q(line);
+        bool idOk = false, retOk = false;
+        const int id  = q.queryItemValue("ID").toInt(&idOk);
+        const int ret = q.queryItemValue("Return").toInt(&retOk);
+        if (idOk && retOk) {
+            emit logMessage(serial, QString("SN=%1: command %2 finished (Return=%3).")
+                            .arg(serial).arg(id).arg(ret));
+            emit commandResult(serial, id, ret);
+        }
+    }
     sendResponse(socket, 200, "OK");
 }
 

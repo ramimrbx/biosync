@@ -2,8 +2,27 @@
 #include <QObject>
 #include <QSqlDatabase>
 #include <QList>
+#include <QHash>
 #include "../model/Device.h"
 #include "../model/AttendanceRecord.h"
+
+// A command for a device, queued in the shared DB so whichever BioSync process currently owns the
+// attendance server (the background service or the window) delivers it on the device's next poll.
+// status: pending → sent → (uploading →) done | failed
+struct DeviceCommand {
+    int     id = 0;
+    QString serial;
+    QString command;
+    QString body;
+    QString status;
+    QString result;
+};
+
+// Last time a device talked to whichever BioSync process owns the attendance server.
+struct DeviceSeen {
+    QString ip;
+    qint64  lastSeenMs = 0;
+};
 
 class Database : public QObject {
     Q_OBJECT
@@ -38,9 +57,27 @@ public:
     // every failed row; otherwise only the given ids (still gated to currently-failed rows).
     bool retryFailedRecords(const QList<int> &ids = {});
 
+    int maxAttendanceId() const;
+
     // Device logs
     void appendLog(const QString &deviceSerial, const QString &message);
     QStringList getDeviceLogs(const QString &deviceSerial = {}, int limit = 500) const;
+    // Log lines written after `afterId` (same format as getDeviceLogs); updates afterId.
+    QStringList getLogsAfter(int &afterId, const QString &deviceSerial = {}) const;
+    int maxLogId() const;
+
+    // Device presence (written by the server owner, read by every window)
+    void markDeviceSeen(const QString &serial, const QString &ip);
+    void clearDeviceSeen(const QString &serial);
+    QHash<QString, DeviceSeen> getDeviceSeen() const;
+
+    // Device command queue
+    int  queueDeviceCommand(const QString &serial, const QString &command, const QString &body = {});
+    bool takeNextCommand(const QString &serial, DeviceCommand &out);   // pending → sent
+    DeviceCommand getCommand(int id) const;
+    DeviceCommand latestCommand(const QString &serial, const QString &command,
+                                const QString &status) const;
+    void setCommandStatus(int id, const QString &status, const QString &result = {});
 
 private:
     QSqlDatabase m_db;

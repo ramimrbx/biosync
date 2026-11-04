@@ -5,6 +5,8 @@
 #include <QDebug>
 #include <QDir>
 #include <QFileInfo>
+#include <QFile>
+#include <QDateTime>
 
 Database::Database(QObject *parent) : QObject(parent) {}
 
@@ -17,6 +19,9 @@ bool Database::open(const QString &path) {
 
     m_db = QSqlDatabase::addDatabase("QSQLITE", "biosync");
     m_db.setDatabaseName(path);
+    // The background service and the window share this file; wait for the other's write lock
+    // instead of failing immediately with "database is locked".
+    m_db.setConnectOptions("QSQLITE_BUSY_TIMEOUT=5000");
 
     if (!m_db.open()) {
         qCritical() << "Failed to open database:" << m_db.lastError().text();
@@ -28,6 +33,15 @@ bool Database::open(const QString &path) {
     q.exec("PRAGMA foreign_keys=ON");
 
     createTables();
+
+#ifndef Q_OS_WIN
+    // The root service and the desktop user's window both write this DB (and its WAL side files).
+    // Make them writable by both; this is a no-op/failure for files we don't own, which is fine.
+    const QFileDevice::Permissions rw = QFileDevice::ReadOwner | QFileDevice::WriteOwner |
+        QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ReadOther | QFileDevice::WriteOther;
+    for (const QString &f : {path, path + "-wal", path + "-shm"})
+        if (QFile::exists(f)) QFile::setPermissions(f, rw);
+#endif
     return true;
 }
 
@@ -93,6 +107,31 @@ void Database::createTables() {
 
     q.exec(R"(
         CREATE INDEX IF NOT EXISTS idx_logs_serial ON device_logs(device_serial)
+    )");
+
+    q.exec(R"(
+        CREATE TABLE IF NOT EXISTS device_status (
+            serial TEXT PRIMARY KEY,
+            ip TEXT,
+            last_seen INTEGER NOT NULL
+        )
+    )");
+
+    q.exec(R"(
+        CREATE TABLE IF NOT EXISTS device_commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_serial TEXT NOT NULL,
+            command TEXT NOT NULL,
+            body TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            result TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT
+        )
+    )");
+
+    q.exec(R"(
+        CREATE INDEX IF NOT EXISTS idx_cmd_serial ON device_commands(device_serial, status)
     )");
 
     if (q.lastError().isValid())
@@ -316,8 +355,12 @@ void Database::appendLog(const QString &deviceSerial, const QString &message) {
     q.addBindValue(deviceSerial.isEmpty() ? QVariant() : QVariant(deviceSerial));
     q.addBindValue(message);
     q.exec();
-    // Keep only last 5000 logs
-    q.exec("DELETE FROM device_logs WHERE id NOT IN (SELECT id FROM device_logs ORDER BY id DESC LIMIT 5000)");
+    // Keep only the last ~5000 logs. Trim occasionally rather than on every insert.
+    static int sinceTrim = 0;
+    if (++sinceTrim >= 200) {
+        sinceTrim = 0;
+        q.exec("DELETE FROM device_logs WHERE id <= (SELECT MAX(id) FROM device_logs) - 5000");
+    }
 }
 
 QStringList Database::getDeviceLogs(const QString &deviceSerial, int limit) const {
@@ -335,4 +378,127 @@ QStringList Database::getDeviceLogs(const QString &deviceSerial, int limit) cons
     }
     if (q.exec()) while (q.next()) logs.prepend(q.value(0).toString());
     return logs;
+}
+
+QStringList Database::getLogsAfter(int &afterId, const QString &deviceSerial) const {
+    QStringList logs;
+    QSqlQuery q(m_db);
+    if (deviceSerial.isEmpty()) {
+        q.prepare("SELECT id, created_at || ' | ' || COALESCE(device_serial,'SYSTEM') || ' | ' || message "
+                  "FROM device_logs WHERE id > ? ORDER BY id LIMIT 500");
+        q.addBindValue(afterId);
+    } else {
+        q.prepare("SELECT id, created_at || ' | ' || message FROM device_logs "
+                  "WHERE id > ? AND device_serial=? ORDER BY id LIMIT 500");
+        q.addBindValue(afterId);
+        q.addBindValue(deviceSerial);
+    }
+    if (q.exec()) while (q.next()) {
+        afterId = qMax(afterId, q.value(0).toInt());
+        logs.append(q.value(1).toString());
+    }
+    return logs;
+}
+
+int Database::maxLogId() const {
+    QSqlQuery q(m_db);
+    if (q.exec("SELECT COALESCE(MAX(id), 0) FROM device_logs") && q.next()) return q.value(0).toInt();
+    return 0;
+}
+
+int Database::maxAttendanceId() const {
+    QSqlQuery q(m_db);
+    if (q.exec("SELECT COALESCE(MAX(id), 0) FROM attendance_records") && q.next()) return q.value(0).toInt();
+    return 0;
+}
+
+// ── Device presence ──────────────────────────────────────────────────────────
+
+void Database::markDeviceSeen(const QString &serial, const QString &ip) {
+    QSqlQuery q(m_db);
+    q.prepare("INSERT OR REPLACE INTO device_status(serial, ip, last_seen) VALUES(?, ?, ?)");
+    q.addBindValue(serial);
+    q.addBindValue(ip);
+    q.addBindValue(QDateTime::currentMSecsSinceEpoch());
+    q.exec();
+}
+
+void Database::clearDeviceSeen(const QString &serial) {
+    QSqlQuery q(m_db);
+    q.prepare("DELETE FROM device_status WHERE serial = ?");
+    q.addBindValue(serial);
+    q.exec();
+}
+
+QHash<QString, DeviceSeen> Database::getDeviceSeen() const {
+    QHash<QString, DeviceSeen> map;
+    QSqlQuery q(m_db);
+    if (q.exec("SELECT serial, ip, last_seen FROM device_status"))
+        while (q.next()) map.insert(q.value(0).toString(), {q.value(1).toString(), q.value(2).toLongLong()});
+    return map;
+}
+
+// ── Device command queue ─────────────────────────────────────────────────────
+
+static DeviceCommand rowToCommand(QSqlQuery &q) {
+    DeviceCommand c;
+    c.id      = q.value("id").toInt();
+    c.serial  = q.value("device_serial").toString();
+    c.command = q.value("command").toString();
+    c.body    = q.value("body").toString();
+    c.status  = q.value("status").toString();
+    c.result  = q.value("result").toString();
+    return c;
+}
+
+int Database::queueDeviceCommand(const QString &serial, const QString &command, const QString &body) {
+    QSqlQuery q(m_db);
+    q.prepare("INSERT INTO device_commands(device_serial, command, body) VALUES(?, ?, ?)");
+    q.addBindValue(serial);
+    q.addBindValue(command);
+    q.addBindValue(body);
+    if (q.exec()) return q.lastInsertId().toInt();
+    qWarning() << "queueDeviceCommand error:" << q.lastError().text();
+    return -1;
+}
+
+bool Database::takeNextCommand(const QString &serial, DeviceCommand &out) {
+    QSqlQuery q(m_db);
+    q.prepare("SELECT * FROM device_commands WHERE device_serial=? AND status='pending' ORDER BY id LIMIT 1");
+    q.addBindValue(serial);
+    if (!q.exec() || !q.next()) return false;
+    out = rowToCommand(q);
+    setCommandStatus(out.id, "sent");
+    out.status = "sent";
+    return true;
+}
+
+DeviceCommand Database::getCommand(int id) const {
+    QSqlQuery q(m_db);
+    q.prepare("SELECT * FROM device_commands WHERE id = ?");
+    q.addBindValue(id);
+    if (q.exec() && q.next()) return rowToCommand(q);
+    return {};
+}
+
+DeviceCommand Database::latestCommand(const QString &serial, const QString &command,
+                                      const QString &status) const {
+    QSqlQuery q(m_db);
+    q.prepare("SELECT * FROM device_commands WHERE device_serial=? AND command=? AND status=? "
+              "ORDER BY id DESC LIMIT 1");
+    q.addBindValue(serial);
+    q.addBindValue(command);
+    q.addBindValue(status);
+    if (q.exec() && q.next()) return rowToCommand(q);
+    return {};
+}
+
+void Database::setCommandStatus(int id, const QString &status, const QString &result) {
+    QSqlQuery q(m_db);
+    q.prepare("UPDATE device_commands SET status=?, result=?, updated_at=datetime('now', 'localtime') "
+              "WHERE id=?");
+    q.addBindValue(status);
+    q.addBindValue(result);
+    q.addBindValue(id);
+    q.exec();
 }

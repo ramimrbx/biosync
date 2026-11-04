@@ -96,6 +96,9 @@ Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""BioSync"" dir=in action=allow program=""{app}\{#MyAppExeName}"" enable=yes profile=any"; Flags: runhidden; StatusMsg: "Configuring firewall..."
 ; Run HEADLESS at system startup as SYSTEM — no login needed, no GUI. Gated on the "start automatically" task.
 Filename: "{sys}\schtasks.exe"; Parameters: "/Create /TN ""BioSync"" /TR ""\""{app}\{#MyAppExeName}\"" --headless"" /SC ONSTART /RU SYSTEM /RL HIGHEST /F"; Flags: runhidden; StatusMsg: "Registering startup service..."; Tasks: startupicon
+; Lift schtasks' default 72-hour run limit and battery restrictions (they kill the service after
+; 3 days of uptime / on a laptop) and restart it if it ever fails. Windows 8+; harmless if it fails.
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$s = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew; Set-ScheduledTask -TaskName 'BioSync' -Settings $s""""; Flags: runhidden; StatusMsg: "Configuring startup service..."; Tasks: startupicon
 Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""BioSync"""; Flags: runhidden; Tasks: startupicon
 ; Open the GUI once so the operator can enter the server URL / key (writes the shared config the service reads).
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

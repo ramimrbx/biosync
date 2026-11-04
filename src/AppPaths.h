@@ -12,6 +12,12 @@
 namespace AppPaths {
 
 inline QString dataDir() {
+    // Explicit override (testing / custom deployments).
+    const QString overrideDir = qEnvironmentVariable("BIOSYNC_DATA_DIR");
+    if (!overrideDir.isEmpty()) {
+        QDir().mkpath(overrideDir);
+        return overrideDir;
+    }
 #ifdef Q_OS_WIN
     QString base = qEnvironmentVariable("ProgramData");
     if (base.isEmpty()) base = "C:/ProgramData";
@@ -34,7 +40,7 @@ inline QString dataDir() {
 inline QString dbPath() {
     QString path = dataDir() + "/biosync.db";
     // One-time migration from the old per-user location so upgrades keep their config/devices.
-    if (!QFile::exists(path)) {
+    if (!QFile::exists(path) && qEnvironmentVariableIsEmpty("BIOSYNC_DATA_DIR")) {
         const QString legacy =
 #ifdef Q_OS_WIN
             QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + "/biosync.db";
