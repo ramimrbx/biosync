@@ -15,3 +15,10 @@ secret.env
 # Generated from appinfo.cmake at configure time (edit appinfo.cmake, not these)
 packaging/appinfo.nsh
 installer/windows/appinfo.iss
+
+# Code::Blocks / wxSmith leftovers (not part of the CMake + Qt build)
+*.cbp
+*.depend
+*.layout
+obj/
+wxsmith/
