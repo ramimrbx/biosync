@@ -7,6 +7,8 @@ Unicode true
 !define VER "${APP_VERSION}"
 !define RUNKEY "Software\Microsoft\Windows\CurrentVersion\Run"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\BioSync"
+; Uninstall key of the Inno Setup build (AppId in installer/windows/BioSync.iss + "_is1").
+!define INNO_UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{7A880B11-3DDF-4EEC-997E-13591EA773AB}_is1"
 
 Name "${APP}"
 OutFile "BioSync_Setup_v${VER}.exe"
@@ -33,6 +35,18 @@ Function .onInit
   nsExec::Exec 'schtasks /End /TN "BioSync"'
   nsExec::Exec 'taskkill /F /IM BioSync.exe'
   Sleep 1000
+
+  ; A version installed by the Inno Setup installer (installer/windows/BioSync.iss) registers under
+  ; its AppId, in the 64-bit registry view. Remove it silently first, so the two installers never
+  ; leave two copies / two "Apps & features" entries. Config in ProgramData\BioSync is kept.
+  SetRegView 64
+  ReadRegStr $1 HKLM "${INNO_UNINSTKEY}" "UninstallString"
+  SetRegView 32
+  StrCmp $1 "" noinno
+  ExecWait '$1 /VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
+  Sleep 2000
+noinno:
+
   ReadRegStr $0 HKLM "${UNINSTKEY}" "UninstallString"
   StrCmp $0 "" done
   ExecWait '"$0" /S _?=$INSTDIR'
